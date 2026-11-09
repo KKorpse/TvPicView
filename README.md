@@ -123,14 +123,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.5-debug.apk
+dist/TvPicView-v1.6-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.5-debug.apk
+adb install -r dist/TvPicView-v1.6-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -151,7 +151,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.5-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.6-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改。

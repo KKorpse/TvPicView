@@ -225,6 +225,7 @@
         android:layout_height="wrap_content"
         android:background="@drawable/log_bg"
         android:clickable="true"
+        android:defaultFocusHighlightEnabled="false"
         android:drawableStart="@drawable/ic_list"
         android:drawablePadding="8dp"
         android:drawableTint="@color/accent"

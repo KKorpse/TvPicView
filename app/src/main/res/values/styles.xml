@@ -27,7 +27,8 @@
         <item name="android:minHeight">56dp</item>
         <item name="android:paddingLeft">22dp</item>
         <item name="android:paddingRight">22dp</item>
-        <item name="android:stateListAnimator">@animator/tv_focus_scale</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:defaultFocusHighlightEnabled">false</item>
         <item name="android:focusable">true</item>
     </style>
 
