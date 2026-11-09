@@ -23,6 +23,8 @@ public class SettingsActivity extends Activity {
     private Button resumeButton;
     private Button filterImagesButton;
     private Button filterVideosButton;
+    private Button onlyFavoritesButton;
+    private Button excludeFavoritesButton;
     private Button storagePermissionButton;
 
     @Override
@@ -43,6 +45,8 @@ public class SettingsActivity extends Activity {
         resumeButton = findViewById(R.id.resumeButton);
         filterImagesButton = findViewById(R.id.filterImagesButton);
         filterVideosButton = findViewById(R.id.filterVideosButton);
+        onlyFavoritesButton = findViewById(R.id.onlyFavoritesButton);
+        excludeFavoritesButton = findViewById(R.id.excludeFavoritesButton);
         storagePermissionButton = findViewById(R.id.storagePermissionButton);
         TextView statePathView = findViewById(R.id.statePathView);
 
@@ -63,6 +67,16 @@ public class SettingsActivity extends Activity {
         filterVideosButton.setOnClickListener(v -> {
             PlaybackSettings.setFilterVideos(this,
                     !PlaybackSettings.isFilterVideos(this));
+            refreshButtons();
+        });
+        onlyFavoritesButton.setOnClickListener(v -> {
+            PlaybackSettings.setOnlyFavorites(this,
+                    !PlaybackSettings.isOnlyFavorites(this));
+            refreshButtons();
+        });
+        excludeFavoritesButton.setOnClickListener(v -> {
+            PlaybackSettings.setExcludeFavorites(this,
+                    !PlaybackSettings.isExcludeFavorites(this));
             refreshButtons();
         });
         storagePermissionButton.setOnClickListener(v -> openAllFilesSettings());
@@ -127,6 +141,18 @@ public class SettingsActivity extends Activity {
                 ? R.string.settings_filter_videos_on
                 : R.string.settings_filter_videos_off);
         applyToggleStyle(filterVideosButton, filterVideos);
+
+        boolean onlyFavorites = PlaybackSettings.isOnlyFavorites(this);
+        onlyFavoritesButton.setText(onlyFavorites
+                ? R.string.settings_only_favorites_on
+                : R.string.settings_only_favorites_off);
+        applyToggleStyle(onlyFavoritesButton, onlyFavorites);
+
+        boolean excludeFavorites = PlaybackSettings.isExcludeFavorites(this);
+        excludeFavoritesButton.setText(excludeFavorites
+                ? R.string.settings_exclude_favorites_on
+                : R.string.settings_exclude_favorites_off);
+        applyToggleStyle(excludeFavoritesButton, excludeFavorites);
 
         boolean granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
                 && Environment.isExternalStorageManager();

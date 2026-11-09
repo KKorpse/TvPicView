@@ -29,6 +29,8 @@ public final class PlaybackSettings {
     private static final String KEY_MEDIA_DIRECTORY_PATH = "media_directory_path";
     private static final String KEY_FILTER_IMAGES = "filter_images";
     private static final String KEY_FILTER_VIDEOS = "filter_videos";
+    private static final String KEY_ONLY_FAVORITES = "only_favorites";
+    private static final String KEY_EXCLUDE_FAVORITES = "exclude_favorites";
 
     public static final int DEFAULT_IMAGE_DURATION = 5;
     public static final long SAVE_INTERVAL_MS = 10000L;
@@ -85,6 +87,34 @@ public final class PlaybackSettings {
     public static void setFilterVideos(Context context, boolean filter) {
         boolean ok = prefs(context).edit().putBoolean(KEY_FILTER_VIDEOS, filter).commit();
         Log.i(TAG, "[Settings] 过滤视频=" + filter + " saved=" + ok);
+    }
+
+    public static boolean isOnlyFavorites(Context context) {
+        return prefs(context).getBoolean(KEY_ONLY_FAVORITES, false);
+    }
+
+    public static void setOnlyFavorites(Context context, boolean only) {
+        SharedPreferences.Editor editor = prefs(context).edit()
+                .putBoolean(KEY_ONLY_FAVORITES, only);
+        if (only) {
+            editor.putBoolean(KEY_EXCLUDE_FAVORITES, false);
+        }
+        boolean ok = editor.commit();
+        Log.i(TAG, "[Settings] 只播放收藏=" + only + " saved=" + ok);
+    }
+
+    public static boolean isExcludeFavorites(Context context) {
+        return prefs(context).getBoolean(KEY_EXCLUDE_FAVORITES, false);
+    }
+
+    public static void setExcludeFavorites(Context context, boolean exclude) {
+        SharedPreferences.Editor editor = prefs(context).edit()
+                .putBoolean(KEY_EXCLUDE_FAVORITES, exclude);
+        if (exclude) {
+            editor.putBoolean(KEY_ONLY_FAVORITES, false);
+        }
+        boolean ok = editor.commit();
+        Log.i(TAG, "[Settings] 过滤已收藏=" + exclude + " saved=" + ok);
     }
 
     public static void saveMediaDirectory(Context context, long bucketId, String bucketName,

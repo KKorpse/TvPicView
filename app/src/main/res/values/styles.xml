@@ -50,4 +50,12 @@
     <style name="TvToggleButton" parent="TvButtonBase">
         <item name="android:minWidth">150dp</item>
     </style>
+
+    <style name="TvButtonHero" parent="TvButtonPrimary">
+        <item name="android:textSize">22sp</item>
+        <item name="android:minWidth">250dp</item>
+        <item name="android:minHeight">72dp</item>
+        <item name="android:paddingLeft">36dp</item>
+        <item name="android:paddingRight">36dp</item>
+    </style>
 </resources>

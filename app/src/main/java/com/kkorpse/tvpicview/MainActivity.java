@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -58,6 +59,7 @@ public class MainActivity extends Activity {
     private Button playButton;
     private Button mediaButton;
     private Button settingsButton;
+    private Button refreshButton;
 
     private boolean usingMediaBucket;
     private long mediaBucketId = Long.MIN_VALUE;
@@ -65,9 +67,8 @@ public class MainActivity extends Activity {
     private String mediaStoreVolumeName;
     private String mediaStoreRelativePath;
     private String mediaStoreDirectoryPath;
-    private boolean playAfterDirectorySelection;
     private boolean scanning;
-    private List<PlaybackQueue.Item> pendingPlayItems;
+    private boolean focusPlayAfterPicker;
 
     private final Deque<String> diagnostics = new ArrayDeque<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
@@ -93,12 +94,11 @@ public class MainActivity extends Activity {
         playButton = findViewById(R.id.playButton);
         mediaButton = findViewById(R.id.mediaButton);
         settingsButton = findViewById(R.id.settingsButton);
+        refreshButton = findViewById(R.id.refreshButton);
 
         playButton.setOnClickListener(v -> play());
-        mediaButton.setOnClickListener(v -> {
-            playAfterDirectorySelection = false;
-            chooseMediaLibrary();
-        });
+        refreshButton.setOnClickListener(v -> refresh());
+        mediaButton.setOnClickListener(v -> chooseMediaLibrary());
         settingsButton.setOnClickListener(v -> {
             log("Settings", "打开播放设置");
             startActivity(new Intent(this, SettingsActivity.class));
@@ -303,17 +303,28 @@ public class MainActivity extends Activity {
         if (usingMediaBucket) {
             log("Play", "点击播放 bucketId=" + mediaBucketId
                     + " name=" + mediaBucketName);
-            startMediaBucketScan();
+            startMediaBucketScan(true);
             return;
         }
 
         log("Play", "没有可用目录，跳转到媒体库目录选择");
-        playAfterDirectorySelection = true;
         setStatus(getString(R.string.no_directory_hint), false);
         chooseMediaLibrary();
     }
 
-    private void startMediaBucketScan() {
+    private void refresh() {
+        if (usingMediaBucket) {
+            log("Refresh", "刷新媒体库目录 bucketId=" + mediaBucketId
+                    + " name=" + mediaBucketName);
+            startMediaBucketScan(false);
+            return;
+        }
+        log("Refresh", "没有可用目录，提示先选择目录");
+        setStatus(getString(R.string.no_directory_hint), false);
+        playButton.requestFocus();
+    }
+
+    private void startMediaBucketScan(boolean playAfterScan) {
         final long bucketId = mediaBucketId;
         final String bucketName = mediaBucketName;
         if (scanning) {
@@ -321,13 +332,16 @@ public class MainActivity extends Activity {
             return;
         }
         setScanning(true);
-        pendingPlayItems = null;
         setCounts(0, 0);
         boolean filterImages = PlaybackSettings.isFilterImages(this);
         boolean filterVideos = PlaybackSettings.isFilterVideos(this);
+        boolean onlyFavorites = PlaybackSettings.isOnlyFavorites(this);
+        boolean excludeFavorites = PlaybackSettings.isExcludeFavorites(this);
         log("MediaStore", "开始扫描媒体库目录: " + bucketName + " bucketId=" + bucketId
                 + " filterImages=" + filterImages
-                + " filterVideos=" + filterVideos);
+                + " filterVideos=" + filterVideos
+                + " onlyFavorites=" + onlyFavorites
+                + " excludeFavorites=" + excludeFavorites);
 
         new Thread(() -> {
             List<PlaybackQueue.Item> found = new ArrayList<>();
@@ -355,11 +369,53 @@ public class MainActivity extends Activity {
                 log("Filter", "已开启过滤图片，跳过图片扫描");
             }
 
-            Collections.sort(found);
-            logResults(bucketName == null ? "媒体库" : bucketName, found, counts, errors);
+            Map<String, String> actionStates = new HashMap<>();
+            if (!found.isEmpty()) {
+                try {
+                    ActionStateStore.Target target = ActionStateStore.findOrCreate(
+                            this,
+                            currentDirectoryKey(),
+                            null,
+                            mediaStoreVolumeName,
+                            mediaStoreRelativePath,
+                            mediaStoreDirectoryPath);
+                    actionStates.putAll(ActionStateStore.read(this, target));
+                    log("Filter", "状态映射 entries=" + actionStates.size()
+                            + " file=" + target.describe());
+                } catch (Throwable e) {
+                    logError("Filter", "读取收藏/删除状态失败", e);
+                }
+            }
+
+            List<PlaybackQueue.Item> filtered = new ArrayList<>();
+            int[] filteredCounts = new int[]{0, 0};
+            for (PlaybackQueue.Item item : found) {
+                String state = actionStates.get(item.name);
+                if (ActionStateStore.DELETED.equals(state)) {
+                    continue;
+                }
+                if (onlyFavorites && !ActionStateStore.FAVORITE.equals(state)) {
+                    continue;
+                }
+                if (!onlyFavorites && excludeFavorites
+                        && ActionStateStore.FAVORITE.equals(state)) {
+                    continue;
+                }
+                filtered.add(item);
+                filteredCounts[item.video ? 0 : 1]++;
+            }
+            log("Filter", "原始=" + found.size() + " 过滤后=" + filtered.size()
+                    + " 视频=" + filteredCounts[0] + " 图片=" + filteredCounts[1]);
+
+            Collections.sort(filtered);
+            logResults(bucketName == null ? "媒体库" : bucketName,
+                    filtered, filteredCounts, errors);
+            final List<PlaybackQueue.Item> finalFound = filtered;
+            final int[] finalCounts = filteredCounts;
             final int errorCount = errors.size();
             final String firstError = errors.isEmpty() ? null : errors.get(0);
-            runOnUiThread(() -> showScanResult(found, counts, firstError, errorCount));
+            runOnUiThread(() -> showScanResult(
+                    finalFound, finalCounts, firstError, errorCount, playAfterScan));
         }, "media-scan").start();
     }
 
@@ -432,7 +488,7 @@ public class MainActivity extends Activity {
     }
 
     private void showScanResult(List<PlaybackQueue.Item> found, int[] counts,
-                                String error, int errorCount) {
+                                String error, int errorCount, boolean playAfterScan) {
         if (isFinishing() || isDestroyed()) {
             return;
         }
@@ -444,94 +500,36 @@ public class MainActivity extends Activity {
         if (error != null && found.isEmpty()) {
             log("Result", "扫描失败: " + error);
             setStatus(getString(R.string.scan_error_detail, error), true);
-            showPlayConfirm(found, counts, error, errorCount);
             return;
         }
 
         if (found.isEmpty()) {
             log("Result", "扫描完成: 0 个文件");
             setStatus(getString(R.string.scan_empty), false);
-            showPlayConfirm(found, counts, null, errorCount);
+            playButton.requestFocus();
             return;
         }
 
         log("Result", "扫描完成: " + found.size() + " 个文件"
                 + "，视频=" + counts[0] + "，图片=" + counts[1]
                 + "，错误=" + errorCount);
+
+        if (playAfterScan) {
+            setStatus(getString(R.string.auto_playing), false);
+            startScannedPlayback(found);
+            return;
+        }
+
         if (errorCount > 0) {
             setStatus(getString(R.string.scan_result_warning,
                     found.size(), counts[0], counts[1], errorCount), true);
         } else {
-            setStatus(getString(R.string.scan_done_confirm), false);
+            setStatus(getString(R.string.refresh_done, counts[0], counts[1]), false);
         }
-        showPlayConfirm(found, counts, null, errorCount);
+        playButton.requestFocus();
     }
 
-    private void showPlayConfirm(List<PlaybackQueue.Item> found, int[] counts,
-                                 String error, int errorCount) {
-        String directoryName = mediaBucketName == null ? "媒体库" : mediaBucketName;
-        String message;
-        if (error != null && found.isEmpty()) {
-            message = getString(R.string.play_confirm_error,
-                    directoryName, counts[0], counts[1], error);
-        } else if (found.isEmpty()) {
-            message = getString(R.string.play_confirm_empty,
-                    directoryName, counts[0], counts[1]);
-        } else {
-            message = getString(R.string.play_confirm_message,
-                    directoryName, counts[0], counts[1]);
-            if (errorCount > 0) {
-                message += "\n\n" + getString(R.string.play_confirm_warning, errorCount);
-            }
-        }
-
-        pendingPlayItems = found.isEmpty() ? null : new ArrayList<>(found);
-        final boolean canPlay = !found.isEmpty();
-
-        View content = getLayoutInflater().inflate(R.layout.dialog_play_confirm, null);
-        TextView messageView = content.findViewById(R.id.confirmMessage);
-        Button backButton = content.findViewById(R.id.confirmBackButton);
-        Button okButton = content.findViewById(R.id.confirmOkButton);
-        messageView.setText(message);
-        okButton.setEnabled(canPlay);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(content)
-                .create();
-
-        okButton.setOnClickListener(v -> {
-            List<PlaybackQueue.Item> items = pendingPlayItems;
-            pendingPlayItems = null;
-            dialog.dismiss();
-            if (items != null && !items.isEmpty()) {
-                startConfirmedPlayback(items);
-            }
-        });
-        backButton.setOnClickListener(v -> {
-            pendingPlayItems = null;
-            setStatus(getString(R.string.scan_cancelled), false);
-            dialog.dismiss();
-            playButton.requestFocus();
-        });
-        dialog.setOnDismissListener(d -> {
-            if (pendingPlayItems != null) {
-                pendingPlayItems = null;
-                setStatus(getString(R.string.scan_cancelled), false);
-                playButton.requestFocus();
-            }
-        });
-        dialog.setOnShowListener(d -> {
-            if (canPlay) {
-                okButton.postDelayed(okButton::requestFocus, 80);
-            } else {
-                backButton.postDelayed(backButton::requestFocus, 80);
-            }
-        });
-        dialog.setCanceledOnTouchOutside(false);
-        dialog.show();
-    }
-
-    private void startConfirmedPlayback(List<PlaybackQueue.Item> items) {
+    private void startScannedPlayback(List<PlaybackQueue.Item> items) {
         if (items.isEmpty()) {
             return;
         }
@@ -562,7 +560,7 @@ public class MainActivity extends Activity {
         intent.putExtra(PlayerActivity.EXTRA_NAME, item.name);
         intent.putExtra(PlayerActivity.EXTRA_IS_VIDEO, item.video);
 
-        log("Play", "确认播放 total=" + items.size()
+        log("Play", "开始播放 total=" + items.size()
                 + " random=" + random
                 + " resume=" + resume
                 + " savedIndex=" + savedIndex
@@ -650,7 +648,6 @@ public class MainActivity extends Activity {
                             log("MediaStore", "错误: " + error);
                         }
                     }
-                    playAfterDirectorySelection = false;
                     return;
                 }
 
@@ -675,6 +672,7 @@ public class MainActivity extends Activity {
                             pathView.setTextColor(getColor(R.color.text_primary));
                             setCounts(0, 0);
                             setStatus(getString(R.string.ready_to_scan), false);
+                            focusPlayAfterPicker = true;
                             playButton.setEnabled(true);
                             playButton.requestFocus();
                             PlaybackSettings.saveMediaDirectory(
@@ -689,19 +687,17 @@ public class MainActivity extends Activity {
                                     + " volume=" + mediaStoreVolumeName
                                     + " relative=" + mediaStoreRelativePath);
 
-                            boolean shouldPlay = playAfterDirectorySelection;
-                            playAfterDirectorySelection = false;
-                            if (shouldPlay) {
-                                playButton.postDelayed(MainActivity.this::play, 300);
-                            }
                         })
                         .setNegativeButton(R.string.cancel,
                                 (d, which) -> log("Picker", "用户取消媒体目录选择"))
                         .setOnDismissListener(d -> {
                             log("MediaStore", "媒体目录对话框关闭");
-                            playAfterDirectorySelection = false;
                             if (!scanning) {
                                 refreshSelectionStatus();
+                            }
+                            if (focusPlayAfterPicker) {
+                                focusPlayAfterPicker = false;
+                                playButton.post(playButton::requestFocus);
                             }
                         })
                         .create();
@@ -813,7 +809,6 @@ public class MainActivity extends Activity {
             log("Permission", "媒体权限已获得");
             showMediaBucketDialog();
         } else {
-            playAfterDirectorySelection = false;
             String summary = mediaPermissionSummary();
             log("Permission", "媒体权限被拒绝: " + summary);
             setStatus(getString(R.string.permission_denied_detail, summary), true);
@@ -886,6 +881,7 @@ public class MainActivity extends Activity {
         playButton.setEnabled(!value);
         mediaButton.setEnabled(!value);
         settingsButton.setEnabled(!value);
+        refreshButton.setEnabled(!value);
         if (value) {
             setStatus(getString(R.string.scanning), false);
         }
@@ -921,6 +917,14 @@ public class MainActivity extends Activity {
             refreshSelectionStatus();
         }
         playButton.post(playButton::requestFocus);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && playButton != null && !scanning) {
+            playButton.postDelayed(playButton::requestFocus, 120);
+        }
     }
 
     private int dp(int value) {
