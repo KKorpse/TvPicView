@@ -1,6 +1,6 @@
 # TvPicView
 
-Android TV demo：选择一个目录，点击“播放”后列出该目录下的图片和视频文件名。
+Android TV / Google TV demo：选择媒体目录，扫描图片和视频，点击列表即可全屏播放。
 
 ## 功能
 
@@ -8,12 +8,19 @@ Android TV demo：选择一个目录，点击“播放”后列出该目录下�
 - 两种选目录方式：
   - **选择目录**：系统文件选择器（SAF），可访问任意授权目录，递归扫描
   - **媒体库目录**：基于 MediaStore 的目录列表，适合系统文件选择器被 TV 固件替换为空壳 Stub 的情况
-- 点击“播放”后递归扫描目录，输出图片/视频文件名（屏幕列表 + Logcat）
-- 内置诊断：
-  - 屏幕底部常驻“诊断日志”面板，显示最近日志
-  - 遥控器移动到日志面板按 OK，可查看/清空完整日志
-  - 状态栏出错时变红，直接显示异常类型、消息和代码位置
-  - 所有阶段日志写入 Logcat（TAG：`TvPicView`）
+- 扫描后点击列表项播放：
+  - 图片：全屏显示，`fitCenter` 等比铺满，不裁剪，比例不一致时自动留黑边
+  - 视频：Media3/ExoPlayer 播放，自动播放，支持播放/暂停、前后 10 秒
+- 图片按 4K 上限解码：
+  - 源图大于 4K：解码到 3840×2160 以内
+  - 源图小于 4K：按原分辨率解码，再由 ImageView 放大到屏幕
+- 视频不转码：按源分辨率硬解，由电视显示管线缩放到 4K 屏幕；大于 4K 的视频取决于电视解码器是否支持
+- 播放页诊断：
+  - 出错时屏幕中央显示红色错误卡片，停留 5 秒
+  - 错误包含异常类型、消息、代码位置、文件名；HEIC/HEIF 会额外提示解码器问题
+  - 视频错误包含 ExoPlayer 错误码、原因链
+  - 全部错误写入 Logcat（TAG：`TvPicView`）
+- 底部常驻诊断日志面板，按 OK 可查看/清空完整日志
 
 ## 安装包
 
@@ -53,17 +60,29 @@ adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ## 使用
 
 1. 遥控器选择“选择目录”或“媒体库目录”，按 OK。
-2. 选中目录后，焦点会移动到“播放”，按 OK 开始扫描。
-3. 结果会显示在列表中，同时写入 Logcat；状态栏显示文件总数、视频数、图片数和错误数。
-4. 系统文件选择器不可用时，应用会自动提示并切换到“媒体库目录”。
+2. 选中目录后，焦点移动到“播放”，按 OK 开始扫描。
+3. 扫描结果列表中，方向键选择文件，按 OK 播放。
+4. 视频播放中：
+   - OK：播放/暂停
+   - 左/右：快退/快进 10 秒
+   - 返回：退出播放
+5. 图片播放中：返回退出。
+
+## 4K 说明
+
+- 图片按 `3840×2160` 上限解码，8K 图片会先缩到 4K 再显示；小图不会在解码阶段放大，由 ImageView 铺满屏幕。
+- 视频不做转码。4K 视频交给电视硬解；电视当前显示模式是 4K 时就按 4K 显示，是 1080p 时由系统/电视缩放。
+- 播放页 Logcat 会输出当前显示模式、支持的模式、视频源分辨率、图片源/解码后尺寸。
+- HEIC/HEIF 是否可播取决于电视系统解码器；不支持时错误卡片会提示。
+- Live Photo 会被识别为两个独立文件：HEIC 显示静态图，MOV 单独作为视频播放。
 
 ## 排查问题
 
 电视屏幕上：
 
-- 底部“诊断日志”面板会显示最近 4 条日志
-- 用方向键移动到该面板，按 OK 查看完整日志，可清空
-- 扫描失败、权限不足、MediaStore 查询异常都会直接显示在状态栏（红色）
+- 播放错误：中央红色卡片显示 5 秒，包含异常、文件和代码位置
+- 扫描/权限错误：状态栏变红，底部诊断日志显示最近记录
+- 日志面板：方向键移动过去按 OK，可查看/清空完整日志
 
 电脑上：
 
@@ -71,21 +90,14 @@ adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 adb logcat -s TvPicView
 ```
 
-日志包含启动环境、设备信息、权限状态、文件选择器解析结果、目录 URI、每次扫描的目录/文件、MediaStore bucket id、异常堆栈位置等。
-
-常见问题：
-
-| 现象 | 原因/处理 |
-| --- | --- |
-| 状态栏提示“系统文件选择器是空壳 Stub” | Google TV 固件移除了 DocumentsUI，使用“媒体库目录”即可 |
-| 媒体库为空 | 电视媒体库还没扫描到文件；先把图片/视频放到电视，或使用“选择目录” |
-| 没有媒体权限 | 按提示打开应用设置，允许访问照片和视频 |
-| 列表只显示部分文件 | MediaStore 只包含已索引的媒体；改用系统文件选择器可扫描任意目录 |
+日志包含启动环境、设备信息、权限状态、文件选择器解析结果、目录 URI、扫描到的文件 URI、MediaStore bucket id、图片解码尺寸、视频分辨率、ExoPlayer 错误码和异常堆栈。
 
 ## 工程结构
 
 ```text
-app/src/main/java/com/kkorpse/tvpicview/MainActivity.java   # 选择器、扫描、诊断
-app/src/main/res/layout/activity_main.xml                   # TV 焦点与日志面板
-app/src/main/AndroidManifest.xml                            # Leanback / 权限
+app/src/main/java/com/kkorpse/tvpicview/MainActivity.java    # 选择目录、扫描、诊断
+app/src/main/java/com/kkorpse/tvpicview/PlayerActivity.java  # 图片/视频全屏播放
+app/src/main/res/layout/activity_main.xml                    # TV 焦点与日志面板
+app/src/main/res/layout/activity_player.xml                  # 播放页、错误卡片、进度
+app/src/main/AndroidManifest.xml                             # Leanback / 权限 / 播放页
 ```

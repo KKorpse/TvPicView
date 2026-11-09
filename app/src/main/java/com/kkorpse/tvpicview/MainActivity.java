@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ContentUris;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
@@ -17,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Looper;
+import android.provider.BaseColumns;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.MediaStore;
@@ -70,8 +72,8 @@ public class MainActivity extends Activity {
     private long mediaBucketId = -1L;
     private String mediaBucketName;
 
-    private final List<String> rows = new ArrayList<>();
-    private ArrayAdapter<String> adapter;
+    private final List<MediaEntry> entries = new ArrayList<>();
+    private ArrayAdapter<MediaEntry> adapter;
 
     private final Deque<String> diagnostics = new ArrayDeque<>();
     private final AtomicBoolean logUpdateScheduled = new AtomicBoolean(false);
@@ -98,10 +100,12 @@ public class MainActivity extends Activity {
         mediaButton = findViewById(R.id.mediaButton);
         playButton = findViewById(R.id.playButton);
 
-        adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, rows) {
+        adapter = new ArrayAdapter<MediaEntry>(this, android.R.layout.simple_list_item_1, entries) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
+                MediaEntry item = getItem(position);
+                view.setText(item == null ? "" : item.label());
                 view.setTextColor(Color.WHITE);
                 view.setTextSize(18f);
                 view.setGravity(Gravity.CENTER_VERTICAL);
@@ -111,6 +115,11 @@ public class MainActivity extends Activity {
             }
         };
         resultList.setAdapter(adapter);
+        resultList.setOnItemClickListener((parent, view, position, id) -> {
+            if (position >= 0 && position < entries.size()) {
+                openPlayer(entries.get(position));
+            }
+        });
 
         pickButton.setOnClickListener(v -> pickDirectory());
         mediaButton.setOnClickListener(v -> chooseMediaLibrary());
@@ -532,7 +541,7 @@ public class MainActivity extends Activity {
         mediaBucketId = -1L;
         mediaBucketName = null;
 
-        rows.clear();
+        entries.clear();
         adapter.notifyDataSetChanged();
         String path = describeTree(uri);
         pathView.setText(getString(R.string.selected_path, path));
@@ -566,9 +575,11 @@ public class MainActivity extends Activity {
         final Uri uri = treeUri;
         final String path = describeTree(uri);
         setScanning(true);
+        entries.clear();
+        adapter.notifyDataSetChanged();
         log("Scan", "开始扫描系统目录: " + path + " uri=" + uri);
         new Thread(() -> {
-            List<String> found = new ArrayList<>();
+            List<MediaEntry> found = new ArrayList<>();
             int[] counts = new int[]{0, 0};
             List<String> errors = new ArrayList<>();
             try {
@@ -579,7 +590,7 @@ public class MainActivity extends Activity {
                 addError(errors, errorSummary(e));
                 logError("Scan", "扫描根目录失败", e);
             }
-            Collections.sort(found, String.CASE_INSENSITIVE_ORDER);
+            Collections.sort(found);
             logResults(path, found, counts, errors);
             final int errorCount = errors.size();
             final String firstError = errors.isEmpty() ? null : errors.get(0);
@@ -588,7 +599,7 @@ public class MainActivity extends Activity {
     }
 
     private void scanTreeChildren(Uri treeUri, String parentDocumentId, String prefix,
-                                  int depth, List<String> out, int[] counts,
+                                  int depth, List<MediaEntry> out, int[] counts,
                                   List<String> errors) {
         if (out.size() >= MAX_FILES) {
             log("Scan", "达到文件上限 " + MAX_FILES + "，停止扫描");
@@ -631,13 +642,17 @@ public class MainActivity extends Activity {
                     scanTreeChildren(treeUri, documentId, prefix + name + "/",
                             depth + 1, out, counts, errors);
                 } else if (isVideo(mime, name)) {
-                    out.add("[视频] " + prefix + name);
+                    Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
+                    out.add(new MediaEntry(prefix + name, fileUri, true));
                     counts[0]++;
-                    log("Scan", "视频: " + prefix + name + " mime=" + mime);
+                    log("Scan", "视频: " + prefix + name + " mime=" + mime
+                            + " uri=" + fileUri);
                 } else if (isImage(mime, name)) {
-                    out.add("[图片] " + prefix + name);
+                    Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
+                    out.add(new MediaEntry(prefix + name, fileUri, false));
                     counts[1]++;
-                    log("Scan", "图片: " + prefix + name + " mime=" + mime);
+                    log("Scan", "图片: " + prefix + name + " mime=" + mime
+                            + " uri=" + fileUri);
                 } else {
                     log("Scan", "跳过非媒体文件: " + prefix + name + " mime=" + mime);
                 }
@@ -656,9 +671,11 @@ public class MainActivity extends Activity {
         final long bucketId = mediaBucketId;
         final String bucketName = mediaBucketName;
         setScanning(true);
+        entries.clear();
+        adapter.notifyDataSetChanged();
         log("MediaStore", "开始扫描媒体库目录: " + bucketName + " bucketId=" + bucketId);
         new Thread(() -> {
-            List<String> found = new ArrayList<>();
+            List<MediaEntry> found = new ArrayList<>();
             int[] counts = new int[]{0, 0};
             List<String> errors = new ArrayList<>();
 
@@ -675,7 +692,7 @@ public class MainActivity extends Activity {
                 logError("MediaStore", "读取图片媒体库失败", e);
             }
 
-            Collections.sort(found, String.CASE_INSENSITIVE_ORDER);
+            Collections.sort(found);
             logResults(bucketName == null ? "媒体库" : bucketName, found, counts, errors);
             final int errorCount = errors.size();
             final String firstError = errors.isEmpty() ? null : errors.get(0);
@@ -684,8 +701,11 @@ public class MainActivity extends Activity {
     }
 
     private void collectBucketMedia(Uri collection, boolean video, long bucketId,
-                                    List<String> out, int[] counts) {
-        String[] projection = new String[]{MediaStore.MediaColumns.DISPLAY_NAME};
+                                    List<MediaEntry> out, int[] counts) {
+        String[] projection = new String[]{
+                BaseColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME
+        };
         String selection = COL_BUCKET_ID + "=?";
         String[] args = new String[]{String.valueOf(bucketId)};
         log("MediaStore", "查询 " + (video ? "视频" : "图片") + " collection=" + collection
@@ -700,12 +720,15 @@ public class MainActivity extends Activity {
             }
             log("MediaStore", "cursor rows=" + cursor.getCount());
             while (cursor.moveToNext() && out.size() < MAX_FILES) {
-                String name = cursor.getString(0);
+                long id = cursor.getLong(0);
+                String name = cursor.getString(1);
                 if (name != null) {
-                    out.add((video ? "[视频] " : "[图片] ") + name);
+                    Uri uri = ContentUris.withAppendedId(collection, id);
+                    out.add(new MediaEntry(name, uri, video));
                     counts[video ? 0 : 1]++;
                     count++;
-                    log("MediaStore", "文件: " + (video ? "[视频] " : "[图片] ") + name);
+                    log("MediaStore", "文件: " + (video ? "[视频] " : "[图片] ")
+                            + name + " uri=" + uri);
                 }
             }
         } finally {
@@ -717,13 +740,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showResults(List<String> found, int[] counts, String error, int errorCount) {
+    private void showResults(List<MediaEntry> found, int[] counts, String error, int errorCount) {
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) {
                 return;
             }
             setScanning(false);
-            rows.clear();
+            entries.clear();
 
             if (error != null && found.isEmpty()) {
                 adapter.notifyDataSetChanged();
@@ -733,7 +756,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            rows.addAll(found);
+            entries.addAll(found);
             adapter.notifyDataSetChanged();
 
             if (found.isEmpty()) {
@@ -757,14 +780,14 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void logResults(String directory, List<String> found,
+    private void logResults(String directory, List<MediaEntry> found,
                             int[] counts, List<String> errors) {
         log("Result", "目录: " + directory);
         log("Result", "文件总数=" + found.size()
                 + "，视频=" + counts[0] + "，图片=" + counts[1]
                 + "，目录错误=" + errors.size());
-        for (String row : found) {
-            Log.i(TAG, "[Result] " + row);
+        for (MediaEntry item : found) {
+            Log.i(TAG, "[Result] " + item.label() + " -> " + item.uri);
         }
         for (String error : errors) {
             log("Result", "错误: " + error);
@@ -843,7 +866,7 @@ public class MainActivity extends Activity {
                             mediaBucketName = entry.getValue();
                             treeUri = null;
 
-                            rows.clear();
+                            entries.clear();
                             adapter.notifyDataSetChanged();
                             pathView.setText(getString(
                                     R.string.media_selected_path, mediaBucketName));
@@ -1011,8 +1034,51 @@ public class MainActivity extends Activity {
         return name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (resultList != null && !entries.isEmpty()) {
+            resultList.post(resultList::requestFocus);
+        }
+    }
+
+    private void openPlayer(MediaEntry item) {
+        log("Play", "打开文件: " + item.label() + " uri=" + item.uri);
+        Intent intent = new Intent(this, PlayerActivity.class);
+        intent.setData(item.uri);
+        intent.putExtra(PlayerActivity.EXTRA_NAME, item.name);
+        intent.putExtra(PlayerActivity.EXTRA_IS_VIDEO, item.video);
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            logError("Play", "打开播放页失败", e);
+            setStatus(getString(R.string.player_error, errorSummary(e)), true);
+        }
+    }
+
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private static final class MediaEntry implements Comparable<MediaEntry> {
+        final String name;
+        final Uri uri;
+        final boolean video;
+
+        MediaEntry(String name, Uri uri, boolean video) {
+            this.name = name;
+            this.uri = uri;
+            this.video = video;
+        }
+
+        String label() {
+            return (video ? "[视频] " : "[图片] ") + name;
+        }
+
+        @Override
+        public int compareTo(MediaEntry other) {
+            return name.compareToIgnoreCase(other.name);
+        }
     }
 
     @Override

@@ -34,6 +34,25 @@
     <string name="open_settings">打开设置</string>
     <string name="permission_dialog_title">媒体权限未授予</string>
     <string name="permission_dialog_message">请在应用设置中允许 TvPicView 访问照片和视频。\n\n当前权限：%1$s</string>
-    <string name="hint">遥控器：方向键移动焦点，OK 确认；出错时请按“诊断日志”查看详情，或执行 adb logcat -s TvPicView</string>
+    <string name="hint">遥控器：方向键选择，OK 播放；返回键退出播放；出错时请按“诊断日志”或执行 adb logcat -s TvPicView</string>
     <string name="cancel">取消</string>
+
+    <string name="player_loading_image">加载图片…</string>
+    <string name="player_image_info">图片 %1$d × %2$d</string>
+    <string name="player_buffering">缓冲中…</string>
+    <string name="player_playing">播放中</string>
+    <string name="player_playing_info">播放中 · %1$s</string>
+    <string name="player_paused">已暂停</string>
+    <string name="player_ended">播放结束</string>
+    <string name="player_error">播放失败：%1$s</string>
+    <string name="player_video_error">视频播放失败</string>
+    <string name="player_image_error">图片加载失败</string>
+    <string name="player_no_uri">无法播放</string>
+    <string name="player_no_uri_detail">缺少文件 URI</string>
+    <string name="player_file_detail">文件：%1$s</string>
+    <string name="player_heif_hint">提示：该电视可能缺少 HEIC/HEIF 解码器</string>
+    <string name="player_seek_forward">快进 10 秒</string>
+    <string name="player_seek_back">快退 10 秒</string>
+    <string name="player_hint_video">OK 播放/暂停 · 左右快进 10 秒 · 返回退出</string>
+    <string name="player_hint_image">返回退出</string>
 </resources>
