@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:keepScreenOn="true"
+    android:orientation="vertical"
+    android:paddingStart="44dp"
+    android:paddingTop="28dp"
+    android:paddingEnd="44dp"
+    android:paddingBottom="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-light"
+        android:text="@string/app_name"
+        android:textColor="@color/text_primary"
+        android:textSize="36sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/subtitle"
+        android:textColor="@color/text_secondary"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/pathView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:ellipsize="middle"
+        android:maxLines="2"
+        android:text="@string/no_directory"
+        android:textColor="@color/accent"
+        android:textSize="18sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/pickButton"
+            style="@style/TvButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:nextFocusDown="@id/resultList"
+            android:nextFocusRight="@id/mediaButton"
+            android:text="@string/pick_directory" />
+
+        <Button
+            android:id="@+id/mediaButton"
+            style="@style/TvButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:nextFocusDown="@id/resultList"
+            android:nextFocusLeft="@id/pickButton"
+            android:nextFocusRight="@id/playButton"
+            android:text="@string/media_directory" />
+
+        <Button
+            android:id="@+id/playButton"
+            style="@style/TvButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:nextFocusDown="@id/resultList"
+            android:nextFocusLeft="@id/mediaButton"
+            android:text="@string/play" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/statusView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:minHeight="24dp"
+        android:text="@string/select_hint"
+        android:textColor="@color/text_secondary"
+        android:textSize="16sp" />
+
+    <ListView
+        android:id="@+id/resultList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="10dp"
+        android:layout_weight="1"
+        android:background="@drawable/panel_bg"
+        android:clipToPadding="false"
+        android:divider="@color/divider"
+        android:dividerHeight="1dp"
+        android:focusable="true"
+        android:listSelector="@drawable/list_selector"
+        android:nextFocusDown="@id/logView"
+        android:nextFocusUp="@id/playButton"
+        android:padding="8dp"
+        android:scrollbars="vertical" />
+
+    <TextView
+        android:id="@+id/logView"
+        android:layout_width="match_parent"
+        android:layout_height="112dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/log_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:fontFamily="monospace"
+        android:gravity="top|start"
+        android:nextFocusDown="@id/pickButton"
+        android:nextFocusUp="@id/resultList"
+        android:padding="8dp"
+        android:scrollbars="vertical"
+        android:text="@string/diagnostics_title"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/hint"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp" />
+
+</LinearLayout>
