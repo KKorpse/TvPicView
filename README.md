@@ -141,6 +141,23 @@ adb install -r dist/TvPicView-v1.8-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
+### 更新安装
+
+不需要先卸载，直接用 `-r` 覆盖安装。也可以运行仓库里的脚本，它会自动选择最新的 `dist` APK、检查设备并启动应用：
+
+```bash
+./install-tv.sh
+```
+
+如果更新失败，按错误处理：
+
+- `INSTALL_FAILED_VERSION_DOWNGRADE`：电视上的版本更新。先提升 `app/build.gradle` 里的 `versionCode`，不要只改 `versionName`。
+- `INSTALL_FAILED_UPDATE_INCOMPATIBLE`：两次 APK 的签名不同。需要卸载一次旧版，之后固定用同一个签名（同一台电脑的 debug keystore，或固定的 release keystore）即可一直覆盖安装。
+- `INSTALL_FAILED_INSUFFICIENT_STORAGE`：电视存储空间不足，清理后重试。
+- `INSTALL_FAILED_USER_RESTRICTED`：电视限制了 ADB 安装，需要在开发者选项和“未知来源”里允许。
+
+当前 1.7 和 1.8 的 APK 使用同一签名，正常情况下 `adb install -r` 可以直接升级。只有电视上的旧版本来自另一台电脑或另一套签名时，才需要最后一次卸载。
+
 > TCL 电视有 Google TV / Android TV 和 Roku TV 两种系统。Roku 不能安装 Android APK。国内 TCL/雷鸟通常没有 Google Play，但可直接侧载，应用不依赖 GMS。
 
 ## 构建
