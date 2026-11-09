@@ -78,6 +78,13 @@
     <string name="player_heif_hint">提示：该电视可能缺少 HEIC/HEIF 解码器</string>
     <string name="player_seek_forward">快进 10 秒</string>
     <string name="player_seek_back">快退 10 秒</string>
-    <string name="player_hint_video">OK 播放/暂停 · 左右快进 10 秒 · 返回退出</string>
-    <string name="player_hint_image">返回退出</string>
+    <string name="player_hint_video">上收藏 · 下删除 · 左右切换 · 暂停后左右快退/快进 · 返回退出</string>
+    <string name="player_hint_image">上收藏 · 下删除 · 左右切换 · OK 暂停/继续 · 返回退出</string>
+
+    <string name="action_favorited">已收藏：%1$s</string>
+    <string name="action_deleted">已标记删除：%1$s</string>
+    <string name="action_error">操作失败：%1$s</string>
+    <string name="action_already_favorite">已收藏</string>
+    <string name="action_already_deleted">已删除</string>
+    <string name="action_no_playable">没有可播放文件</string>
 </resources>

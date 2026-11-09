@@ -69,6 +69,8 @@ public class MainActivity extends Activity {
     private boolean usingMediaBucket;
     private long mediaBucketId = -1L;
     private String mediaBucketName;
+    private String mediaStoreVolumeName;
+    private String mediaStoreRelativePath;
     private boolean autoPlayPending;
 
     private final Deque<String> diagnostics = new ArrayDeque<>();
@@ -154,6 +156,7 @@ public class MainActivity extends Activity {
     private Intent buildTreePickerIntent() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         return intent;
@@ -362,9 +365,14 @@ public class MainActivity extends Activity {
                     Manifest.permission.READ_MEDIA_IMAGES,
                     Manifest.permission.READ_MEDIA_VIDEO
             }, REQ_MEDIA_PERM);
-        } else {
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             requestPermissions(new String[]{
                     Manifest.permission.READ_EXTERNAL_STORAGE
+            }, REQ_MEDIA_PERM);
+        } else {
+            requestPermissions(new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
             }, REQ_MEDIA_PERM);
         }
     }
@@ -466,10 +474,13 @@ public class MainActivity extends Activity {
         }
 
         Uri uri = data.getData();
+        int takeFlags = data.getFlags()
+                & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try {
-            getContentResolver().takePersistableUriPermission(
-                    uri, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            log("Picker", "已持久化目录权限: " + uri);
+            getContentResolver().takePersistableUriPermission(uri, takeFlags);
+            log("Picker", "已持久化目录权限: " + uri
+                    + " flags=0x" + Integer.toHexString(takeFlags));
         } catch (SecurityException e) {
             logError("Picker", "无法持久化目录权限（本次仍可读取）: " + uri, e);
         }
@@ -478,6 +489,8 @@ public class MainActivity extends Activity {
         usingMediaBucket = false;
         mediaBucketId = -1L;
         mediaBucketName = null;
+        mediaStoreVolumeName = null;
+        mediaStoreRelativePath = null;
         autoPlayPending = false;
 
         countView.setText(R.string.not_scanned);
@@ -577,20 +590,30 @@ public class MainActivity extends Activity {
                 if (name == null) {
                     name = "(未命名)";
                 }
+                if (name.startsWith(ActionStateStore.FILE_NAME)) {
+                    log("Scan", "跳过状态文件: " + prefix + name);
+                    continue;
+                }
 
                 if (Document.MIME_TYPE_DIR.equals(mime)) {
+                    if ("收藏".equals(name) || "删除".equals(name)) {
+                        log("Scan", "跳过操作目录: " + prefix + name);
+                        continue;
+                    }
                     log("Scan", "发现子目录: " + prefix + name);
                     scanTreeChildren(treeUri, documentId, prefix + name + "/",
                             depth + 1, out, counts, errors);
                 } else if (isVideo(mime, name)) {
                     Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, true));
+                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, true,
+                            mime, null, null, parentDocumentId));
                     counts[0]++;
                     log("Scan", "视频: " + prefix + name + " mime=" + mime
                             + " uri=" + fileUri);
                 } else if (isImage(mime, name)) {
                     Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, false));
+                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, false,
+                            mime, null, null, parentDocumentId));
                     counts[1]++;
                     log("Scan", "图片: " + prefix + name + " mime=" + mime
                             + " uri=" + fileUri);
@@ -642,9 +665,19 @@ public class MainActivity extends Activity {
 
     private void collectBucketMedia(Uri collection, boolean video, long bucketId,
                                     List<PlaybackQueue.Item> out, int[] counts) {
-        String[] projection = new String[]{
+        boolean hasPathColumns = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+        String[] projection = hasPathColumns
+                ? new String[]{
                 BaseColumns._ID,
-                MediaStore.MediaColumns.DISPLAY_NAME
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.VOLUME_NAME,
+                MediaStore.MediaColumns.RELATIVE_PATH
+        }
+                : new String[]{
+                BaseColumns._ID,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.MIME_TYPE
         };
         String selection = COL_BUCKET_ID + "=?";
         String[] args = new String[]{String.valueOf(bucketId)};
@@ -662,13 +695,24 @@ public class MainActivity extends Activity {
             while (cursor.moveToNext() && out.size() < MAX_FILES) {
                 long id = cursor.getLong(0);
                 String name = cursor.getString(1);
-                if (name != null) {
+                String mime = cursor.getString(2);
+                String volume = hasPathColumns ? cursor.getString(3) : null;
+                String relative = hasPathColumns ? cursor.getString(4) : null;
+                if (mediaStoreVolumeName == null && volume != null) {
+                    mediaStoreVolumeName = volume;
+                }
+                if (mediaStoreRelativePath == null && relative != null) {
+                    mediaStoreRelativePath = relative;
+                }
+                if (name != null && !name.startsWith(ActionStateStore.FILE_NAME)) {
                     Uri uri = ContentUris.withAppendedId(collection, id);
-                    out.add(new PlaybackQueue.Item(name, uri, video));
+                    out.add(new PlaybackQueue.Item(name, uri, video,
+                            mime, volume, relative, null));
                     counts[video ? 0 : 1]++;
                     count++;
                     log("MediaStore", "文件: " + (video ? "[视频] " : "[图片] ")
-                            + name + " uri=" + uri);
+                            + name + " uri=" + uri
+                            + " volume=" + volume + " relative=" + relative);
                 }
             }
         } finally {
@@ -757,6 +801,10 @@ public class MainActivity extends Activity {
         }
         int index = Math.max(0, Math.min(startIndex, items.size() - 1));
         PlaybackQueue.Item item = items.get(index);
+        PlaybackQueue.setDirectoryContext(
+                treeUri == null ? null : treeUri.toString(),
+                mediaStoreVolumeName,
+                mediaStoreRelativePath);
         PlaybackQueue.set(items, currentDirectoryKey(), index);
 
         Intent intent = new Intent(this, PlayerActivity.class);
@@ -869,6 +917,8 @@ public class MainActivity extends Activity {
                             usingMediaBucket = true;
                             mediaBucketId = entry.getKey();
                             mediaBucketName = entry.getValue();
+                            mediaStoreVolumeName = null;
+                            mediaStoreRelativePath = null;
                             treeUri = null;
                             autoPlayPending = false;
 

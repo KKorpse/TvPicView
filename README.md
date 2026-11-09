@@ -10,6 +10,8 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 - 图片播放时间、顺序/随机、是否从上次位置继续，可在“设置”里修改
 - 每 10 秒保存一次当前播放位置，切换文件时也会立即保存
 - 图片、视频都支持暂停
+- 上键收藏、下键标记删除，状态写入目录内的 `tvpicview_state.json`
+- 左右键切换媒体；视频暂停后左右键快退/快进
 - 全屏播放，隐藏系统栏，保持屏幕常亮
 
 ## 设置
@@ -28,13 +30,52 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 /sdcard/Android/data/com.kkorpse.tvpicview/files/playback_state.txt
 ```
 
-同时写入 SharedPreferences，卸载应用才会清除。设置页会显示当前状态文件路径。
+同时写入 SharedPreferences，卸载应用才会清除。设置页会显示当前状态文件路径。收藏/删除标记保存在每个目录自己的 `tvpicview_state.json` 中。
 
 ## 播放控制
 
-- 图片：OK / 播放暂停键暂停或继续当前图片，返回退出
-- 视频：OK / 播放暂停键暂停或继续，左右快进/快退 10 秒，返回退出
+- **图片**
+  - OK / 播放暂停键：暂停或继续当前图片
+  - 左右键：切换上一张/下一张（视频和图片一起切换）
+  - 上键：标记收藏
+  - 下键：标记删除，并跳到下一个
+  - 返回键：退出
+- **视频**
+  - OK / 播放暂停键：暂停或继续
+  - 播放中左右键：切换上一个/下一个媒体
+  - 暂停后左右键：快退/快进 10 秒
+  - 上键：标记收藏
+  - 下键：标记删除，并跳到下一个
+  - 返回键：退出
 - 播放列表结束后显示“播放结束”，返回退出
+
+## 收藏 / 删除标记
+
+不会复制、移动或真正删除媒体文件。每个播放目录会生成一个结构化状态文件：
+
+```text
+tvpicview_state.json
+```
+
+内容示例：
+
+```json
+{
+  "version": 1,
+  "updatedAt": 1794238888224,
+  "directory": "bucket:-539437383:TvPicDemo",
+  "items": {
+    "tv-4k.png": "FAVORITE",
+    "tv-8k.png": "DELETED"
+  }
+}
+```
+
+- 上键写入 `FAVORITE`
+- 下键写入 `DELETED`，播放时会跳过被标记为删除的文件
+- 状态文件在每次操作后异步写入
+- MediaStore 不允许非媒体文件直接写入 `Movies` 时，电视可能把文件命名为 `tvpicview_state.json.mp4`，内容仍然是上面的 JSON
+- 状态文件创建失败时，播放页会显示错误；收藏/删除标记不可用，播放本身不受影响
 
 ## 4K 说明
 
@@ -63,14 +104,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.2-debug.apk
+dist/TvPicView-v1.3-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.2-debug.apk
+adb install -r dist/TvPicView-v1.3-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -95,7 +136,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.2-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.3-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改；每次构建文件名会自动跟随版本号。
@@ -107,5 +148,6 @@ MainActivity.java        # 首页、扫描、MediaStore、自动播放启动
 SettingsActivity.java    # 播放设置
 PlayerActivity.java      # 全屏图片/视频连续播放、暂停、状态保存
 PlaybackSettings.java    # 设置和断点状态持久化
-PlaybackQueue.java       # 播放列表传递
+PlaybackQueue.java       # 播放列表和目录上下文
+ActionStateStore.java    # 目录内收藏/删除标记文件
 ```

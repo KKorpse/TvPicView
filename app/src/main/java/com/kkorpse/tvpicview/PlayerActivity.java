@@ -19,6 +19,7 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -32,10 +33,14 @@ import androidx.media3.ui.PlayerView;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class PlayerActivity extends Activity {
 
@@ -80,6 +85,11 @@ public class PlayerActivity extends Activity {
     private final Set<Integer> played = new HashSet<>();
     private final Random random = new Random();
     private boolean playbackFinished;
+    private boolean videoPaused;
+
+    private final Map<String, String> actionStates = new HashMap<>();
+    private Uri actionFileUri;
+    private ExecutorService actionWriter;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
@@ -138,22 +148,76 @@ public class PlayerActivity extends Activity {
         randomMode = PlaybackSettings.isRandom(this);
         imageDurationMs = Math.max(1000L,
                 PlaybackSettings.getImageDurationSeconds(this) * 1000L);
+        actionWriter = Executors.newSingleThreadExecutor();
+        loadActionFile();
 
         log("打开播放列表 total=" + playlist.size()
                 + " start=" + currentIndex
                 + " random=" + randomMode
                 + " imageDuration=" + imageDurationMs + "ms"
-                + " directory=" + directoryKey);
+                + " directory=" + directoryKey
+                + " actionStates=" + actionStates.size());
         logDisplayModes();
 
+        skipDeletedStart();
         if (playlist.isEmpty() || currentIndex < 0) {
             showError(getString(R.string.player_no_uri),
-                    getString(R.string.player_no_uri_detail));
+                    getString(R.string.action_no_playable));
             return;
         }
 
         played.add(currentIndex);
         startCurrent();
+    }
+
+    private void loadActionFile() {
+        try {
+            actionFileUri = ActionStateStore.findOrCreate(this,
+                    PlaybackQueue.getTreeUri(),
+                    PlaybackQueue.getVolumeName(),
+                    PlaybackQueue.getRelativePath());
+            actionStates.putAll(ActionStateStore.read(this, actionFileUri));
+            log("状态文件=" + actionFileUri
+                    + " entries=" + actionStates.size());
+        } catch (Throwable e) {
+            logError("打开状态文件失败（收藏/删除标记将不可用）", e);
+            Toast.makeText(this,
+                    getString(R.string.action_error, errorSummary(e)),
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean ensureActionFile() {
+        if (actionFileUri != null) {
+            return true;
+        }
+        try {
+            actionFileUri = ActionStateStore.findOrCreate(this,
+                    PlaybackQueue.getTreeUri(),
+                    PlaybackQueue.getVolumeName(),
+                    PlaybackQueue.getRelativePath());
+            actionStates.putAll(ActionStateStore.read(this, actionFileUri));
+            log("状态文件已就绪=" + actionFileUri);
+            return true;
+        } catch (Throwable e) {
+            logError("创建状态文件失败", e);
+            showTransientError(getString(R.string.action_error,
+                    errorSummary(e)), "");
+            return false;
+        }
+    }
+
+    private void skipDeletedStart() {
+        if (playlist.isEmpty() || currentIndex < 0) {
+            return;
+        }
+        for (int i = 0; i < playlist.size(); i++) {
+            if (!isDeleted(playlist.get(currentIndex))) {
+                return;
+            }
+            currentIndex = (currentIndex + 1) % playlist.size();
+        }
+        currentIndex = -1;
     }
 
     private void setupPlaylist() {
@@ -225,6 +289,7 @@ public class PlayerActivity extends Activity {
         isVideo = item.video;
         hasError = false;
         playbackFinished = false;
+        videoPaused = false;
         imagePaused = false;
         imageRemainingMs = imageDurationMs;
         imageShownAt = 0L;
@@ -275,7 +340,7 @@ public class PlayerActivity extends Activity {
         handler.removeCallbacks(imageAdvanceRunnable);
         handler.removeCallbacks(errorAdvanceRunnable);
 
-        if (playlist.size() <= 1 || played.size() >= playlist.size()) {
+        if (!hasUnplayedPlayable()) {
             finishPlaylist();
             return;
         }
@@ -284,17 +349,54 @@ public class PlayerActivity extends Activity {
         if (randomMode) {
             do {
                 next = random.nextInt(playlist.size());
-            } while (played.contains(next));
+            } while (played.contains(next) || isDeleted(playlist.get(next)));
         } else {
-            next = (currentIndex + 1) % playlist.size();
-            while (played.contains(next)) {
+            next = currentIndex;
+            do {
                 next = (next + 1) % playlist.size();
-            }
+            } while (played.contains(next) || isDeleted(playlist.get(next)));
         }
 
         played.add(next);
         currentIndex = next;
         startCurrent();
+    }
+
+    private boolean hasUnplayedPlayable() {
+        for (int i = 0; i < playlist.size(); i++) {
+            if (!played.contains(i) && !isDeleted(playlist.get(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void switchItem(int direction) {
+        if (playlist.size() <= 1) {
+            return;
+        }
+        if (playbackFinished) {
+            played.clear();
+            playbackFinished = false;
+        }
+
+        int next = currentIndex;
+        for (int i = 0; i < playlist.size(); i++) {
+            next = (next + direction + playlist.size()) % playlist.size();
+            if (!isDeleted(playlist.get(next))) {
+                played.add(next);
+                currentIndex = next;
+                log("左右切换 direction=" + direction
+                        + " name=" + playlist.get(next).name);
+                startCurrent();
+                return;
+            }
+        }
+        finishPlaylist();
+    }
+
+    private boolean isDeleted(PlaybackQueue.Item item) {
+        return ActionStateStore.DELETED.equals(actionStates.get(item.name));
     }
 
     private void finishPlaylist() {
@@ -516,6 +618,7 @@ public class PlayerActivity extends Activity {
         }
         if (player.isPlaying()) {
             player.pause();
+            videoPaused = true;
             setStatus(getString(R.string.player_paused), false);
             showOverlayPinned();
         } else {
@@ -523,6 +626,7 @@ public class PlayerActivity extends Activity {
                 player.seekTo(0);
             }
             player.play();
+            videoPaused = false;
             setStatus(playingText(), false);
             showOverlayTemporary();
         }
@@ -544,6 +648,90 @@ public class PlayerActivity extends Activity {
                 : R.string.player_seek_back), false);
         showOverlayTemporary();
         log("seek delta=" + deltaMs + " target=" + target);
+    }
+
+    // ------------------------------------------------------------
+    // 收藏 / 删除标记
+    // ------------------------------------------------------------
+
+    private void favoriteCurrent() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()) {
+            return;
+        }
+        PlaybackQueue.Item item = playlist.get(currentIndex);
+        String state = actionStates.get(item.name);
+        if (ActionStateStore.FAVORITE.equals(state)) {
+            setStatus(getString(R.string.action_already_favorite), false);
+            showOverlayPinned();
+            return;
+        }
+        if (ActionStateStore.DELETED.equals(state)) {
+            setStatus(getString(R.string.action_already_deleted), true);
+            showOverlayTemporary();
+            return;
+        }
+        if (!ensureActionFile()) {
+            return;
+        }
+
+        actionStates.put(item.name, ActionStateStore.FAVORITE);
+        saveActionStates();
+        String text = getString(R.string.action_favorited, item.name);
+        setStatus(text, false);
+        showOverlayTemporary();
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        log("映射表: " + item.name + " -> 收藏");
+    }
+
+    private void deleteCurrent() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()) {
+            return;
+        }
+        PlaybackQueue.Item item = playlist.get(currentIndex);
+        if (ActionStateStore.DELETED.equals(actionStates.get(item.name))) {
+            setStatus(getString(R.string.action_already_deleted), true);
+            showOverlayTemporary();
+            return;
+        }
+        if (!ensureActionFile()) {
+            return;
+        }
+
+        actionStates.put(item.name, ActionStateStore.DELETED);
+        saveActionStates();
+        String text = getString(R.string.action_deleted, item.name);
+        setStatus(text, false);
+        showOverlayTemporary();
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        log("映射表: " + item.name + " -> 删除");
+        advanceToNext();
+    }
+
+    private void saveActionStates() {
+        if (actionFileUri == null) {
+            showTransientError(getString(R.string.action_error, "状态文件不可用"), "");
+            return;
+        }
+        final Uri uri = actionFileUri;
+        final String key = directoryKey;
+        final Map<String, String> snapshot = new HashMap<>(actionStates);
+        if (actionWriter == null) {
+            actionWriter = Executors.newSingleThreadExecutor();
+        }
+        actionWriter.execute(() -> {
+            try {
+                ActionStateStore.write(this, uri, key, snapshot);
+                log("状态映射已写入 " + uri + " entries=" + snapshot.size());
+            } catch (Throwable e) {
+                logError("写入状态映射失败", e);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        showTransientError(
+                                getString(R.string.action_error, errorSummary(e)), "");
+                    }
+                });
+            }
+        });
     }
 
     // ------------------------------------------------------------
@@ -710,10 +898,16 @@ public class PlayerActivity extends Activity {
                     }
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
+                    switchItem(-1);
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    switchItem(1);
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
+                    favoriteCurrent();
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    showOverlayTemporary();
+                    deleteCurrent();
                     return true;
                 default:
                     return super.dispatchKeyEvent(event);
@@ -730,22 +924,34 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_MEDIA_PLAY:
                 if (player != null && !playbackFinished) {
                     player.play();
+                    videoPaused = false;
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
                 if (player != null) {
                     player.pause();
+                    videoPaused = true;
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                seekBy(-SEEK_STEP_MS);
+                if (videoPaused) {
+                    seekBy(-SEEK_STEP_MS);
+                } else {
+                    switchItem(-1);
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                seekBy(SEEK_STEP_MS);
+                if (videoPaused) {
+                    seekBy(SEEK_STEP_MS);
+                } else {
+                    switchItem(1);
+                }
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
+                favoriteCurrent();
+                return true;
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                showOverlayTemporary();
+                deleteCurrent();
                 return true;
             default:
                 return super.dispatchKeyEvent(event);
@@ -797,6 +1003,15 @@ public class PlayerActivity extends Activity {
     private void showError(String title, String detail) {
         hasError = true;
         hideLoading();
+        showErrorCard(title, detail);
+    }
+
+    private void showTransientError(String title, String detail) {
+        hideLoading();
+        showErrorCard(title, detail);
+    }
+
+    private void showErrorCard(String title, String detail) {
         String text = title + (detail == null || detail.length() == 0
                 ? "" : "\n\n" + detail);
         errorView.setText(text);
@@ -873,6 +1088,9 @@ public class PlayerActivity extends Activity {
         releasePlayer();
         if (imageView != null) {
             imageView.setImageDrawable(null);
+        }
+        if (actionWriter != null) {
+            actionWriter.shutdown();
         }
         PlaybackQueue.clear();
         log("播放页销毁");
