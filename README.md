@@ -95,6 +95,8 @@ tvpicview_state.json
   - 上键：标记收藏
   - 下键：标记删除并跳到下一个
   - 返回键：退出
+- **删除撤回**：按下键删除后 5 秒内按返回键，撤回这次删除并回到该文件
+- **退出确认**：没有删除或超过 5 秒时，按返回键先弹“要退出播放吗？”，确认后才退出
 - 播放列表结束后显示“播放结束”，返回退出
 
 ## 4K 说明
@@ -123,14 +125,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.6-debug.apk
+dist/TvPicView-v1.7-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.6-debug.apk
+adb install -r dist/TvPicView-v1.7-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -151,7 +153,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.6-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.7-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改。

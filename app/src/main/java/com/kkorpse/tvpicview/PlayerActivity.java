@@ -1,6 +1,7 @@
 package com.kkorpse.tvpicview;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageDecoder;
@@ -16,6 +17,7 @@ import android.view.Display;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -90,6 +92,14 @@ public class PlayerActivity extends Activity {
     private final Map<String, String> actionStates = new HashMap<>();
     private ActionStateStore.Target actionFile;
     private ExecutorService actionWriter;
+
+    private PlaybackQueue.Item lastDeletedItem;
+    private String lastDeletedPreviousState;
+    private long deleteUndoDeadline;
+
+    private boolean exitDialogShowing;
+    private boolean wasVideoPlayingBeforeExit;
+    private boolean wasImagePausedBeforeExit;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
@@ -727,14 +737,111 @@ public class PlayerActivity extends Activity {
             return;
         }
 
+        lastDeletedItem = item;
+        lastDeletedPreviousState = actionStates.get(item.name);
+        deleteUndoDeadline = SystemClock.elapsedRealtime() + 5000L;
+
         actionStates.put(item.name, ActionStateStore.DELETED);
         saveActionStates();
-        String text = getString(R.string.action_deleted, item.name);
-        setStatus(text, false);
-        showOverlayTemporary();
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
-        log("映射表: " + item.name + " -> 删除");
+        log("映射表: " + item.name + " -> 删除；5 秒内返回键可撤回");
         advanceToNext();
+    }
+
+    private boolean canUndoDelete() {
+        return lastDeletedItem != null
+                && SystemClock.elapsedRealtime() <= deleteUndoDeadline;
+    }
+
+    private void undoDelete() {
+        PlaybackQueue.Item item = lastDeletedItem;
+        String previousState = lastDeletedPreviousState;
+        lastDeletedItem = null;
+        lastDeletedPreviousState = null;
+        deleteUndoDeadline = 0L;
+
+        if (item == null) {
+            return;
+        }
+        if (previousState == null) {
+            actionStates.remove(item.name);
+        } else {
+            actionStates.put(item.name, previousState);
+        }
+        saveActionStates();
+        log("撤回删除: " + item.name + " previous=" + previousState);
+
+        int index = -1;
+        for (int i = 0; i < playlist.size(); i++) {
+            if (playlist.get(i).name.equals(item.name)) {
+                index = i;
+                break;
+            }
+        }
+        if (index >= 0) {
+            currentIndex = index;
+            int position = playOrder.indexOf(index);
+            if (position < 0) {
+                buildPlayOrder();
+            } else {
+                orderPosition = position;
+            }
+            playbackFinished = false;
+            hasError = false;
+            startCurrent();
+        }
+    }
+
+    private void showExitConfirm() {
+        if (exitDialogShowing || isFinishing()) {
+            return;
+        }
+        exitDialogShowing = true;
+        wasVideoPlayingBeforeExit = isVideo && player != null && player.isPlaying();
+        wasImagePausedBeforeExit = imagePaused;
+
+        if (isVideo && player != null) {
+            player.pause();
+        }
+        if (!isVideo) {
+            pauseImageTimer();
+        }
+
+        View content = getLayoutInflater().inflate(R.layout.dialog_exit_confirm, null);
+        Button cancelButton = content.findViewById(R.id.exitCancelButton);
+        Button returnButton = content.findViewById(R.id.exitReturnButton);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(content)
+                .create();
+        cancelButton.setOnClickListener(v -> dialog.dismiss());
+        returnButton.setOnClickListener(v -> {
+            exitDialogShowing = false;
+            dialog.dismiss();
+            finish();
+        });
+        dialog.setOnDismissListener(d -> {
+            boolean shouldResume = exitDialogShowing;
+            exitDialogShowing = false;
+            if (shouldResume && !isFinishing()) {
+                resumeAfterExitCancel();
+            }
+        });
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setOnShowListener(d ->
+                cancelButton.postDelayed(cancelButton::requestFocus, 80));
+        dialog.show();
+    }
+
+    private void resumeAfterExitCancel() {
+        if (isVideo) {
+            if (wasVideoPlayingBeforeExit && player != null && !hasError) {
+                player.play();
+                videoPaused = false;
+            }
+        } else if (!wasImagePausedBeforeExit && !playbackFinished && !hasError) {
+            imagePaused = false;
+            scheduleImageAdvance(imageRemainingMs);
+        }
     }
 
     private void saveActionStates() {
@@ -909,6 +1016,17 @@ public class PlayerActivity extends Activity {
         }
 
         int keyCode = event.getKeyCode();
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.getRepeatCount() == 0) {
+                if (canUndoDelete()) {
+                    undoDelete();
+                } else {
+                    showExitConfirm();
+                }
+            }
+            return true;
+        }
+
         if (!isVideo) {
             switch (keyCode) {
                 case KeyEvent.KEYCODE_DPAD_CENTER:
