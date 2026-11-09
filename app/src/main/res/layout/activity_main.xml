@@ -49,7 +49,7 @@
             style="@style/TvButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:nextFocusDown="@id/resultList"
+            android:nextFocusDown="@id/logButton"
             android:nextFocusRight="@id/mediaButton"
             android:text="@string/pick_directory" />
 
@@ -59,7 +59,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
-            android:nextFocusDown="@id/resultList"
+            android:nextFocusDown="@id/logButton"
             android:nextFocusLeft="@id/pickButton"
             android:nextFocusRight="@id/playButton"
             android:text="@string/media_directory" />
@@ -70,61 +70,76 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
-            android:nextFocusDown="@id/resultList"
+            android:nextFocusDown="@id/logButton"
             android:nextFocusLeft="@id/mediaButton"
+            android:nextFocusRight="@id/settingsButton"
             android:text="@string/play" />
+
+        <Button
+            android:id="@+id/settingsButton"
+            style="@style/TvButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:nextFocusDown="@id/logButton"
+            android:nextFocusLeft="@id/playButton"
+            android:text="@string/settings" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/statusView"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:minHeight="24dp"
-        android:text="@string/select_hint"
-        android:textColor="@color/text_secondary"
-        android:textSize="16sp" />
+        android:layout_marginTop="24dp"
+        android:background="@drawable/panel_bg"
+        android:orientation="vertical"
+        android:padding="22dp">
 
-    <ListView
-        android:id="@+id/resultList"
+        <TextView
+            android:id="@+id/countView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/not_scanned"
+            android:textColor="@color/text_primary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/statusView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="24dp"
+            android:text="@string/select_hint"
+            android:textColor="@color/text_secondary"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <Space
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="10dp"
-        android:layout_weight="1"
-        android:background="@drawable/panel_bg"
-        android:clipToPadding="false"
-        android:divider="@color/divider"
-        android:dividerHeight="1dp"
-        android:focusable="true"
-        android:listSelector="@drawable/list_selector"
-        android:nextFocusDown="@id/logView"
-        android:nextFocusUp="@id/playButton"
-        android:padding="8dp"
-        android:scrollbars="vertical" />
+        android:layout_weight="1" />
 
     <TextView
-        android:id="@+id/logView"
-        android:layout_width="match_parent"
-        android:layout_height="112dp"
-        android:layout_marginTop="8dp"
+        android:id="@+id/logButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:background="@drawable/log_bg"
         android:clickable="true"
         android:focusable="true"
-        android:fontFamily="monospace"
-        android:gravity="top|start"
-        android:nextFocusDown="@id/pickButton"
-        android:nextFocusUp="@id/resultList"
-        android:padding="8dp"
-        android:scrollbars="vertical"
-        android:text="@string/diagnostics_title"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp" />
+        android:nextFocusUp="@id/settingsButton"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="10dp"
+        android:text="@string/diagnostics"
+        android:textColor="@color/accent"
+        android:textSize="14sp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:text="@string/hint"
+        android:layout_marginTop="8dp"
+        android:text="@string/main_hint"
         android:textColor="@color/text_secondary"
         android:textSize="12sp" />
 

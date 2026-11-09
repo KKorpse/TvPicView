@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Size;
 import android.view.Display;
@@ -30,6 +31,11 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
 
 public class PlayerActivity extends Activity {
 
@@ -42,6 +48,7 @@ public class PlayerActivity extends Activity {
     private static final long SEEK_STEP_MS = 10000L;
     private static final long OVERLAY_DISPLAY_MS = 4000L;
     private static final long ERROR_DISPLAY_MS = 5000L;
+    private static final long ERROR_ADVANCE_MS = 6000L;
 
     private PlayerView playerView;
     private ImageView imageView;
@@ -58,6 +65,22 @@ public class PlayerActivity extends Activity {
     private String videoSize;
     private String fileName = "";
 
+    private List<PlaybackQueue.Item> playlist = new ArrayList<>();
+    private int currentIndex = -1;
+    private String directoryKey = "";
+    private boolean randomMode;
+    private long imageDurationMs;
+    private long imageRemainingMs;
+    private long imageShownAt;
+    private boolean imagePaused;
+    private int imageWidth;
+    private int imageHeight;
+    private int loadToken;
+
+    private final Set<Integer> played = new HashSet<>();
+    private final Random random = new Random();
+    private boolean playbackFinished;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideOverlayRunnable = () -> {
         if (overlay != null) {
@@ -70,6 +93,27 @@ public class PlayerActivity extends Activity {
     private final Runnable hideErrorRunnable = () -> {
         if (errorView != null) {
             errorView.setVisibility(View.GONE);
+        }
+    };
+    private final Runnable imageAdvanceRunnable = () -> {
+        if (!playbackFinished && !hasError) {
+            advanceToNext();
+        }
+    };
+    private final Runnable errorAdvanceRunnable = () -> {
+        if (!playbackFinished) {
+            if (played.size() >= playlist.size()) {
+                finishPlaylist();
+            } else {
+                advanceToNext();
+            }
+        }
+    };
+    private final Runnable saveStateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            saveState();
+            handler.postDelayed(this, PlaybackSettings.SAVE_INTERVAL_MS);
         }
     };
 
@@ -90,36 +134,55 @@ public class PlayerActivity extends Activity {
         statusView = findViewById(R.id.statusView);
         hintView = findViewById(R.id.hintView);
 
-        Uri uri = getIntent().getData();
-        String name = getIntent().getStringExtra(EXTRA_NAME);
-        isVideo = getIntent().getBooleanExtra(EXTRA_IS_VIDEO, false);
+        setupPlaylist();
+        randomMode = PlaybackSettings.isRandom(this);
+        imageDurationMs = Math.max(1000L,
+                PlaybackSettings.getImageDurationSeconds(this) * 1000L);
 
-        if (name == null || name.length() == 0) {
-            name = uri == null ? "(未知文件)" : uri.getLastPathSegment();
-        }
-        fileName = name;
-        titleView.setText(name);
-        hintView.setText(isVideo ? R.string.player_hint_video : R.string.player_hint_image);
-
-        log("打开 name=" + name + " isVideo=" + isVideo + " uri=" + uri);
+        log("打开播放列表 total=" + playlist.size()
+                + " start=" + currentIndex
+                + " random=" + randomMode
+                + " imageDuration=" + imageDurationMs + "ms"
+                + " directory=" + directoryKey);
         logDisplayModes();
 
-        if (uri == null) {
+        if (playlist.isEmpty() || currentIndex < 0) {
             showError(getString(R.string.player_no_uri),
                     getString(R.string.player_no_uri_detail));
             return;
         }
 
-        if (isVideo) {
-            try {
-                playVideo(uri);
-            } catch (Throwable e) {
-                logError("初始化视频播放器失败", e);
-                showError(getString(R.string.player_video_error), errorSummary(e));
-            }
-        } else {
-            loadImage(uri);
+        played.add(currentIndex);
+        startCurrent();
+    }
+
+    private void setupPlaylist() {
+        List<PlaybackQueue.Item> queued = PlaybackQueue.getItems();
+        if (!queued.isEmpty()) {
+            playlist = new ArrayList<>(queued);
+            directoryKey = PlaybackQueue.getDirectoryKey();
+            currentIndex = clampIndex(PlaybackQueue.getStartIndex());
+            return;
         }
+
+        Uri uri = getIntent().getData();
+        String name = getIntent().getStringExtra(EXTRA_NAME);
+        boolean video = getIntent().getBooleanExtra(EXTRA_IS_VIDEO, false);
+        if (name == null || name.length() == 0) {
+            name = uri == null ? "(未知文件)" : uri.getLastPathSegment();
+        }
+        if (uri != null) {
+            playlist.add(new PlaybackQueue.Item(name, uri, video));
+            directoryKey = "single";
+            currentIndex = 0;
+        }
+    }
+
+    private int clampIndex(int index) {
+        if (playlist.isEmpty()) {
+            return -1;
+        }
+        return Math.max(0, Math.min(index, playlist.size() - 1));
     }
 
     private void hideSystemUi() {
@@ -148,14 +211,170 @@ public class PlayerActivity extends Activity {
     }
 
     // ------------------------------------------------------------
+    // 播放列表
+    // ------------------------------------------------------------
+
+    private void startCurrent() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()) {
+            finishPlaylist();
+            return;
+        }
+
+        PlaybackQueue.Item item = playlist.get(currentIndex);
+        fileName = item.name;
+        isVideo = item.video;
+        hasError = false;
+        playbackFinished = false;
+        imagePaused = false;
+        imageRemainingMs = imageDurationMs;
+        imageShownAt = 0L;
+        imageWidth = 0;
+        imageHeight = 0;
+        loadToken++;
+        videoSize = null;
+
+        handler.removeCallbacks(imageAdvanceRunnable);
+        handler.removeCallbacks(errorAdvanceRunnable);
+        handler.removeCallbacks(hideErrorRunnable);
+        releasePlayer();
+        imageView.setImageDrawable(null);
+        imageView.setVisibility(View.GONE);
+        playerView.setVisibility(View.GONE);
+        errorView.setVisibility(View.GONE);
+        hideLoading();
+
+        titleView.setText(item.name);
+        hintView.setText(isVideo
+                ? R.string.player_hint_video
+                : R.string.player_hint_image);
+        showOverlayTemporary();
+        saveState();
+
+        log("开始第 " + (currentIndex + 1) + "/" + playlist.size()
+                + " 个: " + item.name + " video=" + item.video
+                + " uri=" + item.uri);
+
+        if (item.uri == null) {
+            showError(getString(R.string.player_no_uri),
+                    getString(R.string.player_no_uri_detail));
+            scheduleAdvanceAfterError();
+            return;
+        }
+
+        if (item.video) {
+            playVideo(item);
+        } else {
+            loadImage(item);
+        }
+    }
+
+    private void advanceToNext() {
+        if (playbackFinished) {
+            return;
+        }
+        handler.removeCallbacks(imageAdvanceRunnable);
+        handler.removeCallbacks(errorAdvanceRunnable);
+
+        if (playlist.size() <= 1 || played.size() >= playlist.size()) {
+            finishPlaylist();
+            return;
+        }
+
+        int next;
+        if (randomMode) {
+            do {
+                next = random.nextInt(playlist.size());
+            } while (played.contains(next));
+        } else {
+            next = (currentIndex + 1) % playlist.size();
+            while (played.contains(next)) {
+                next = (next + 1) % playlist.size();
+            }
+        }
+
+        played.add(next);
+        currentIndex = next;
+        startCurrent();
+    }
+
+    private void finishPlaylist() {
+        playbackFinished = true;
+        handler.removeCallbacks(imageAdvanceRunnable);
+        handler.removeCallbacks(errorAdvanceRunnable);
+        hideLoading();
+        setStatus(getString(R.string.player_ended), false);
+        showOverlayPinned();
+        saveState();
+        log("播放列表结束");
+    }
+
+    private void saveState() {
+        if (currentIndex >= 0 && currentIndex < playlist.size()) {
+            PlaybackSettings.saveState(this, directoryKey,
+                    playlist.get(currentIndex), currentIndex);
+        }
+    }
+
+    private void scheduleAdvanceAfterError() {
+        handler.removeCallbacks(errorAdvanceRunnable);
+        if (!playbackFinished) {
+            handler.postDelayed(errorAdvanceRunnable, ERROR_ADVANCE_MS);
+        }
+    }
+
+    private void scheduleImageAdvance(long delayMs) {
+        handler.removeCallbacks(imageAdvanceRunnable);
+        if (playbackFinished || hasError || imagePaused) {
+            return;
+        }
+        imageRemainingMs = Math.max(500L, delayMs);
+        imageShownAt = SystemClock.elapsedRealtime();
+        handler.postDelayed(imageAdvanceRunnable, imageRemainingMs);
+    }
+
+    private void pauseImageTimer() {
+        if (imagePaused) {
+            return;
+        }
+        if (imageShownAt > 0L) {
+            long elapsed = SystemClock.elapsedRealtime() - imageShownAt;
+            imageRemainingMs = Math.max(500L, imageRemainingMs - elapsed);
+        }
+        imagePaused = true;
+        handler.removeCallbacks(imageAdvanceRunnable);
+    }
+
+    private void toggleImagePause() {
+        if (hasError || playbackFinished) {
+            return;
+        }
+        if (imagePaused) {
+            imagePaused = false;
+            if (imageWidth > 0 && imageHeight > 0) {
+                setStatus(getString(R.string.player_image_info,
+                        imageWidth, imageHeight), false);
+            } else {
+                setStatus(getString(R.string.player_playing), false);
+            }
+            showOverlayTemporary();
+            scheduleImageAdvance(imageRemainingMs);
+        } else {
+            pauseImageTimer();
+            setStatus(getString(R.string.player_paused), false);
+            showOverlayPinned();
+            log("图片暂停 remaining=" + imageRemainingMs + "ms");
+        }
+    }
+
+    // ------------------------------------------------------------
     // 视频
     // ------------------------------------------------------------
 
-    private void playVideo(Uri uri) {
-        hasError = false;
+    private void playVideo(PlaybackQueue.Item item) {
         playerView.setVisibility(View.VISIBLE);
         imageView.setVisibility(View.GONE);
         showLoading();
+        final int itemIndex = currentIndex;
 
         player = new ExoPlayer.Builder(this).build();
         player.setAudioAttributes(new AudioAttributes.Builder()
@@ -166,7 +385,7 @@ public class PlayerActivity extends Activity {
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
-                if (hasError) {
+                if (itemIndex != currentIndex || hasError) {
                     return;
                 }
                 switch (playbackState) {
@@ -188,8 +407,7 @@ public class PlayerActivity extends Activity {
                         break;
                     case Player.STATE_ENDED:
                         hideLoading();
-                        setStatus(getString(R.string.player_ended), false);
-                        showOverlayPinned();
+                        advanceToNext();
                         break;
                     default:
                         break;
@@ -198,7 +416,7 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
-                if (hasError) {
+                if (itemIndex != currentIndex || hasError) {
                     return;
                 }
                 if (isPlaying) {
@@ -214,6 +432,9 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onTracksChanged(Tracks tracks) {
+                if (itemIndex != currentIndex) {
+                    return;
+                }
                 String size = detectVideoSize(tracks);
                 if (size != null) {
                     videoSize = size;
@@ -223,20 +444,24 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
+                if (itemIndex != currentIndex) {
+                    return;
+                }
                 hideLoading();
                 String detail = videoErrorDetail(error);
                 logError("视频播放失败: " + detail, error);
                 showError(getString(R.string.player_video_error), detail);
+                scheduleAdvanceAfterError();
             }
         });
 
         playerView.setPlayer(player);
-        player.setMediaItem(MediaItem.fromUri(uri));
+        player.setMediaItem(MediaItem.fromUri(item.uri));
         player.prepare();
         player.play();
         setStatus(getString(R.string.player_buffering), false);
         showOverlayTemporary();
-        log("开始播放 uri=" + uri);
+        log("开始播放视频 name=" + item.name + " uri=" + item.uri);
     }
 
     private String playingText() {
@@ -286,7 +511,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void togglePlayPause() {
-        if (player == null || hasError) {
+        if (player == null || hasError || playbackFinished) {
             return;
         }
         if (player.isPlaying()) {
@@ -304,7 +529,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void seekBy(long deltaMs) {
-        if (player == null || hasError) {
+        if (player == null || hasError || playbackFinished) {
             return;
         }
         long duration = player.getDuration();
@@ -325,43 +550,56 @@ public class PlayerActivity extends Activity {
     // 图片
     // ------------------------------------------------------------
 
-    private void loadImage(Uri uri) {
-        hasError = false;
+    private void loadImage(PlaybackQueue.Item item) {
         playerView.setVisibility(View.GONE);
         imageView.setVisibility(View.VISIBLE);
         showLoading();
         setStatus(getString(R.string.player_loading_image), false);
         showOverlayTemporary();
+        final int token = loadToken;
 
         try {
-            log("图片 MIME=" + getContentResolver().getType(uri) + " uri=" + uri);
+            log("图片 MIME=" + getContentResolver().getType(item.uri)
+                    + " uri=" + item.uri);
         } catch (Exception e) {
             logError("读取图片 MIME 失败", e);
         }
 
         new Thread(() -> {
             try {
-                Bitmap bitmap = decodeImage(uri);
+                Bitmap bitmap = decodeImage(item.uri);
                 if (bitmap == null) {
                     throw new IllegalStateException("Bitmap 解码返回 null");
                 }
                 runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) {
+                    if (token != loadToken || isFinishing() || isDestroyed()) {
+                        bitmap.recycle();
                         return;
                     }
                     hideLoading();
                     imageView.setImageBitmap(bitmap);
-                    setStatus(getString(R.string.player_image_info,
-                            bitmap.getWidth(), bitmap.getHeight()), false);
-                    showOverlayTemporary();
-                    log("图片显示解码后=" + bitmap.getWidth() + "x" + bitmap.getHeight());
+                    imageWidth = bitmap.getWidth();
+                    imageHeight = bitmap.getHeight();
+                    if (imagePaused) {
+                        setStatus(getString(R.string.player_paused), false);
+                        showOverlayPinned();
+                    } else {
+                        setStatus(getString(R.string.player_image_info,
+                                imageWidth, imageHeight), false);
+                        showOverlayTemporary();
+                        scheduleImageAdvance(imageDurationMs);
+                    }
+                    log("图片显示解码后=" + imageWidth + "x" + imageHeight);
                 });
             } catch (Throwable e) {
                 logError("图片加载失败", e);
                 runOnUiThread(() -> {
+                    if (token != loadToken || isFinishing() || isDestroyed()) {
+                        return;
+                    }
                     hideLoading();
-                    String detail = imageErrorDetail(e);
-                    showError(getString(R.string.player_image_error), detail);
+                    showError(getString(R.string.player_image_error), imageErrorDetail(e));
+                    scheduleAdvanceAfterError();
                 });
             }
         }, "image-decode").start();
@@ -458,6 +696,19 @@ public class PlayerActivity extends Activity {
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    toggleImagePause();
+                    return true;
+                case KeyEvent.KEYCODE_MEDIA_PLAY:
+                    if (imagePaused) {
+                        toggleImagePause();
+                    }
+                    return true;
+                case KeyEvent.KEYCODE_MEDIA_PAUSE:
+                    if (!imagePaused) {
+                        toggleImagePause();
+                    }
+                    return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                 case KeyEvent.KEYCODE_DPAD_UP:
@@ -477,7 +728,7 @@ public class PlayerActivity extends Activity {
                 togglePlayPause();
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY:
-                if (player != null) {
+                if (player != null && !playbackFinished) {
                     player.play();
                 }
                 return true;
@@ -556,6 +807,16 @@ public class PlayerActivity extends Activity {
         handler.postDelayed(hideErrorRunnable, ERROR_DISPLAY_MS);
     }
 
+    private void releasePlayer() {
+        if (player != null) {
+            player.release();
+            player = null;
+        }
+        if (playerView != null) {
+            playerView.setPlayer(null);
+        }
+    }
+
     private void log(String message) {
         Log.i(TAG, "[Player] " + message);
     }
@@ -581,7 +842,25 @@ public class PlayerActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        handler.removeCallbacks(saveStateRunnable);
+        handler.postDelayed(saveStateRunnable, PlaybackSettings.SAVE_INTERVAL_MS);
+        if (!isVideo && currentIndex >= 0 && !playbackFinished
+                && !imagePaused && imageView.getDrawable() != null) {
+            scheduleImageAdvance(imageRemainingMs);
+        }
+    }
+
+    @Override
     protected void onStop() {
+        handler.removeCallbacks(saveStateRunnable);
+        handler.removeCallbacks(imageAdvanceRunnable);
+        if (!isVideo && !imagePaused && imageShownAt > 0L) {
+            long elapsed = SystemClock.elapsedRealtime() - imageShownAt;
+            imageRemainingMs = Math.max(500L, imageRemainingMs - elapsed);
+        }
+        saveState();
         if (player != null) {
             player.pause();
         }
@@ -590,15 +869,12 @@ public class PlayerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        handler.removeCallbacks(hideOverlayRunnable);
-        handler.removeCallbacks(hideErrorRunnable);
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        handler.removeCallbacksAndMessages(null);
+        releasePlayer();
         if (imageView != null) {
             imageView.setImageDrawable(null);
         }
+        PlaybackQueue.clear();
         log("播放页销毁");
         super.onDestroy();
     }

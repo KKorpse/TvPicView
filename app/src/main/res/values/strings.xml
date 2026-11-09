@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TvPicView</string>
-    <string name="subtitle">选择目录，扫描其中的图片和视频</string>
+    <string name="subtitle">选择目录，自动连续播放全部图片和视频</string>
     <string name="pick_directory">选择目录</string>
     <string name="media_directory">媒体库目录</string>
     <string name="play">播放</string>
@@ -9,7 +9,7 @@
     <string name="selected_path">目录：%1$s</string>
     <string name="media_selected_path">目录：%1$s（媒体库）</string>
     <string name="select_hint">请选择包含图片/视频的目录</string>
-    <string name="ready_to_scan">目录已选择，点击“播放”开始扫描</string>
+    <string name="ready_to_scan">目录已选择，点击“播放”开始自动播放</string>
     <string name="scanning">正在扫描，请稍候…</string>
     <string name="scan_result">共 %1$d 个文件：视频 %2$d，图片 %3$d</string>
     <string name="scan_empty">该目录下没有找到图片或视频</string>
@@ -35,7 +35,32 @@
     <string name="permission_dialog_title">媒体权限未授予</string>
     <string name="permission_dialog_message">请在应用设置中允许 TvPicView 访问照片和视频。\n\n当前权限：%1$s</string>
     <string name="hint">遥控器：方向键选择，OK 播放；返回键退出播放；出错时请按“诊断日志”或执行 adb logcat -s TvPicView</string>
+    <string name="main_hint">全屏播放：OK 播放/暂停 · 左右快进 10 秒 · 返回退出</string>
     <string name="cancel">取消</string>
+    <string name="settings">设置</string>
+    <string name="settings_title">播放设置</string>
+    <string name="settings_subtitle">修改后立即生效</string>
+    <string name="settings_image_duration">图片播放时间</string>
+    <string name="settings_image_duration_desc">每张图片停留的秒数</string>
+    <string name="settings_duration_title">图片播放时间</string>
+    <string name="settings_duration_value">%1$d 秒</string>
+    <string name="settings_duration_default">5 秒</string>
+    <string name="settings_order">播放顺序</string>
+    <string name="settings_order_desc">顺序或随机播放整个目录</string>
+    <string name="settings_order_sequence">顺序播放</string>
+    <string name="settings_order_random">随机播放</string>
+    <string name="settings_resume">继续上次播放</string>
+    <string name="settings_resume_desc">点“播放”时从上次文件继续</string>
+    <string name="settings_resume_on">继续上次：开</string>
+    <string name="settings_resume_off">继续上次：关</string>
+    <string name="settings_manual_hint">播放会自动连续播放整个目录；手动文件选择已关闭。</string>
+    <string name="settings_state_file">状态文件：%1$s</string>
+    <string name="settings_back_hint">按返回键退出设置</string>
+    <string name="diagnostics">诊断日志</string>
+    <string name="media_counts">视频 %1$d 个 · 图片 %2$d 个</string>
+    <string name="not_scanned">尚未扫描</string>
+    <string name="scan_done_autoplay">扫描完成，即将自动播放</string>
+    <string name="auto_playing">正在自动播放…</string>
 
     <string name="player_loading_image">加载图片…</string>
     <string name="player_image_info">图片 %1$d × %2$d</string>

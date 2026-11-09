@@ -1,0 +1,139 @@
+package com.kkorpse.tvpicview;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.util.Log;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
+public final class PlaybackSettings {
+
+    private static final String TAG = "TvPicView";
+    private static final String PREFS = "tvpicview_settings";
+    private static final String KEY_IMAGE_DURATION = "image_duration_seconds";
+    private static final String KEY_RANDOM = "random_playback";
+    private static final String KEY_RESUME = "resume_playback";
+    private static final String KEY_LAST_DIR = "last_directory";
+    private static final String KEY_LAST_NAME = "last_name";
+    private static final String KEY_LAST_URI = "last_uri";
+    private static final String KEY_LAST_INDEX = "last_index";
+    private static final String KEY_LAST_SAVED = "last_saved_at";
+
+    public static final int DEFAULT_IMAGE_DURATION = 5;
+    public static final long SAVE_INTERVAL_MS = 10000L;
+
+    private PlaybackSettings() {
+    }
+
+    private static SharedPreferences prefs(Context context) {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    public static int getImageDurationSeconds(Context context) {
+        int value = prefs(context).getInt(KEY_IMAGE_DURATION, DEFAULT_IMAGE_DURATION);
+        return value >= 1 && value <= 3600 ? value : DEFAULT_IMAGE_DURATION;
+    }
+
+    public static void setImageDurationSeconds(Context context, int seconds) {
+        prefs(context).edit().putInt(KEY_IMAGE_DURATION, seconds).apply();
+        Log.i(TAG, "[Settings] 图片播放时间=" + seconds + " 秒");
+    }
+
+    public static boolean isRandom(Context context) {
+        return prefs(context).getBoolean(KEY_RANDOM, false);
+    }
+
+    public static void setRandom(Context context, boolean random) {
+        prefs(context).edit().putBoolean(KEY_RANDOM, random).apply();
+        Log.i(TAG, "[Settings] 播放顺序=" + (random ? "随机" : "顺序"));
+    }
+
+    public static boolean isResume(Context context) {
+        return prefs(context).getBoolean(KEY_RESUME, true);
+    }
+
+    public static void setResume(Context context, boolean resume) {
+        prefs(context).edit().putBoolean(KEY_RESUME, resume).apply();
+        Log.i(TAG, "[Settings] 继续上次=" + resume);
+    }
+
+    public static int findResumeIndex(Context context, String directoryKey,
+                                      List<PlaybackQueue.Item> items) {
+        if (directoryKey == null || items == null || items.isEmpty()) {
+            return -1;
+        }
+        SharedPreferences preferences = prefs(context);
+        if (!directoryKey.equals(preferences.getString(KEY_LAST_DIR, ""))) {
+            return -1;
+        }
+
+        String lastUri = preferences.getString(KEY_LAST_URI, "");
+        for (int i = 0; i < items.size(); i++) {
+            PlaybackQueue.Item item = items.get(i);
+            if (item.uri != null && item.uri.toString().equals(lastUri)) {
+                return i;
+            }
+        }
+
+        String lastName = preferences.getString(KEY_LAST_NAME, "");
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).name.equals(lastName)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public static void saveState(Context context, String directoryKey,
+                                 PlaybackQueue.Item item, int index) {
+        if (item == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String uri = item.uri == null ? "" : item.uri.toString();
+
+        prefs(context).edit()
+                .putString(KEY_LAST_DIR, directoryKey == null ? "" : directoryKey)
+                .putString(KEY_LAST_NAME, item.name)
+                .putString(KEY_LAST_URI, uri)
+                .putInt(KEY_LAST_INDEX, index)
+                .putLong(KEY_LAST_SAVED, now)
+                .apply();
+
+        final String snapshot = "directory=" + (directoryKey == null ? "" : directoryKey)
+                + "\nname=" + item.name
+                + "\nuri=" + uri
+                + "\nindex=" + index
+                + "\nsaved_at=" + now
+                + "\n";
+        final Context appContext = context.getApplicationContext();
+        new Thread(() -> writeMirror(appContext, snapshot), "state-save").start();
+
+        Log.i(TAG, "[State] 保存播放状态 name=" + item.name
+                + " index=" + index + " directory=" + directoryKey);
+    }
+
+    private static void writeMirror(Context context, String text) {
+        File directory = context.getExternalFilesDir(null);
+        if (directory == null) {
+            return;
+        }
+        File file = new File(directory, "playback_state.txt");
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(text.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Log.w(TAG, "[State] 写状态文件失败: " + file, e);
+        }
+    }
+
+    public static String getStateFilePath(Context context) {
+        File directory = context.getExternalFilesDir(null);
+        if (directory == null) {
+            return "不可用";
+        }
+        return new File(directory, "playback_state.txt").getAbsolutePath();
+    }
+}
