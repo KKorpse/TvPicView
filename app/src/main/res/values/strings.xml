@@ -100,6 +100,7 @@
     <string name="player_hint_image">上收藏 · 下删除 · 左右切换 · OK 暂停/继续 · 返回确认退出</string>
 
     <string name="action_favorited">已收藏：%1$s</string>
+    <string name="action_unfavorited">已取消收藏：%1$s</string>
     <string name="action_deleted">已标记删除：%1$s</string>
     <string name="action_error">操作失败：%1$s</string>
     <string name="action_already_favorite">已收藏</string>

@@ -13,7 +13,7 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 - 没有保存目录时，点播放才会自动进入媒体库目录选择
 - 图片按设定时间切换；视频播放完自动下一个
 - 图片、视频都支持暂停
-- 上键收藏、下键标记删除，标记写入目录内的状态文件
+- 上键收藏、下键取消收藏或标记删除，标记写入目录内的状态文件
 - 左右键切换媒体；随机模式下按保存的随机顺序切换
 - 视频暂停后左右键快退/快进 10 秒
 - 全屏播放，隐藏系统栏，保持屏幕常亮
@@ -91,16 +91,17 @@ tvpicview_state.json
   - OK / 播放暂停键：暂停或继续当前图片
   - 左右键：切换上一个/下一个媒体
   - 上键：标记收藏
-  - 下键：标记删除并跳到下一个
+  - 下键：已收藏的文件先取消收藏；普通文件标记删除并跳到下一个
   - 返回键：退出
 - **视频**
   - OK / 播放暂停键：暂停或继续
   - 播放中左右键：切换上一个/下一个媒体
   - 暂停后左右键：快退/快进 10 秒
   - 上键：标记收藏
-  - 下键：标记删除并跳到下一个
+  - 下键：已收藏的文件先取消收藏；普通文件标记删除并跳到下一个
   - 返回键：退出
 - **删除撤回**：按下键删除后 5 秒内按返回键，撤回这次删除并回到该文件
+- **取消收藏**：当前文件已收藏时，按一次下键只取消收藏、不标记删除；再按一次才会标记删除
 - **退出确认**：没有删除或超过 5 秒时，按返回键先弹“要退出播放吗？”，确认后才退出
 - 播放列表结束后显示“播放结束”，返回退出
 
@@ -130,14 +131,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.9-debug.apk
+dist/TvPicView-v1.9.1-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.9-debug.apk
+adb install -r dist/TvPicView-v1.9.1-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -156,7 +157,7 @@ adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 - `INSTALL_FAILED_INSUFFICIENT_STORAGE`：电视存储空间不足，清理后重试。
 - `INSTALL_FAILED_USER_RESTRICTED`：电视限制了 ADB 安装，需要在开发者选项和“未知来源”里允许。
 
-当前 1.7、1.8 和 1.9 的 APK 使用同一签名，正常情况下 `adb install -r` 可以直接升级。只有电视上的旧版本来自另一台电脑或另一套签名时，才需要最后一次卸载。
+当前 1.7 起的 APK 使用同一签名，正常情况下 `adb install -r` 可以直接升级。只有电视上的旧版本来自另一台电脑或另一套签名时，才需要最后一次卸载。
 
 > TCL 电视有 Google TV / Android TV 和 Roku TV 两种系统。Roku 不能安装 Android APK。国内 TCL/雷鸟通常没有 Google Play，但可直接侧载，应用不依赖 GMS。
 
@@ -175,7 +176,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.9-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.9.1-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改。

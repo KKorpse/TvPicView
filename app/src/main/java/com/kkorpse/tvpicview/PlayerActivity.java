@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.ImageDecoder;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -728,7 +730,8 @@ public class PlayerActivity extends Activity {
             return;
         }
         PlaybackQueue.Item item = playlist.get(currentIndex);
-        if (ActionStateStore.DELETED.equals(actionStates.get(item.name))) {
+        String currentState = actionStates.get(item.name);
+        if (ActionStateStore.DELETED.equals(currentState)) {
             setStatus(getString(R.string.action_already_deleted), true);
             showOverlayTemporary();
             return;
@@ -737,8 +740,22 @@ public class PlayerActivity extends Activity {
             return;
         }
 
+        if (ActionStateStore.FAVORITE.equals(currentState)) {
+            actionStates.remove(item.name);
+            saveActionStates();
+            String text = getString(R.string.action_unfavorited, item.name);
+            setStatus(text, false);
+            showOverlayTemporary();
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+            if (!isVideo && !imagePaused && !playbackFinished && !hasError) {
+                scheduleImageAdvance(imageDurationMs);
+            }
+            log("映射表: " + item.name + " -> 取消收藏；再按一次下键才会标记删除");
+            return;
+        }
+
         lastDeletedItem = item;
-        lastDeletedPreviousState = actionStates.get(item.name);
+        lastDeletedPreviousState = currentState;
         deleteUndoDeadline = SystemClock.elapsedRealtime() + 5000L;
 
         actionStates.put(item.name, ActionStateStore.DELETED);
@@ -813,6 +830,8 @@ public class PlayerActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(content)
                 .create();
+        dialog.getWindow().setBackgroundDrawable(
+                new ColorDrawable(Color.TRANSPARENT));
         cancelButton.setOnClickListener(v -> dialog.dismiss());
         returnButton.setOnClickListener(v -> {
             exitDialogShowing = false;
