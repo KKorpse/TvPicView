@@ -15,6 +15,9 @@ import android.util.Log;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -23,8 +26,9 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * 每个播放目录里维护一个 tvpicview_state.json，记录文件名对应的收藏/删除标记。
- * 不复制、不移动、不真正删除媒体文件。
+ * 每个播放目录维护收藏/删除标记。
+ * 优先写入目录内的 tvpicview_state.json；如果电视的 MediaStore 不允许
+ * 在该目录创建文件，则自动降级到应用私有目录，保证标记功能仍然可用。
  */
 public final class ActionStateStore {
 
@@ -38,15 +42,64 @@ public final class ActionStateStore {
     private ActionStateStore() {
     }
 
-    public static Uri findOrCreate(Context context, String treeUri,
-                                   String volumeName, String relativePath) throws Exception {
-        if (treeUri != null && treeUri.length() > 0) {
-            return findOrCreateSaf(context, Uri.parse(treeUri));
+    public static final class Target {
+        public final Uri uri;
+        public final File file;
+        public final boolean inDirectory;
+
+        Target(Uri uri, File file, boolean inDirectory) {
+            this.uri = uri;
+            this.file = file;
+            this.inDirectory = inDirectory;
         }
-        if (volumeName != null && volumeName.length() > 0) {
-            return findOrCreateMediaStore(context, volumeName, relativePath);
+
+        public String describe() {
+            if (uri != null) {
+                return uri.toString();
+            }
+            return file == null ? "null" : file.getAbsolutePath();
         }
-        throw new IllegalStateException("没有可用的目录上下文，无法创建状态文件");
+    }
+
+    public static Target findOrCreate(Context context, String directoryKey,
+                                      String treeUri, String volumeName,
+                                      String relativePath) throws Exception {
+        try {
+            Uri uri;
+            if (treeUri != null && treeUri.length() > 0) {
+                uri = findOrCreateSaf(context, Uri.parse(treeUri));
+            } else if (volumeName != null && volumeName.length() > 0) {
+                uri = findOrCreateMediaStore(context, volumeName, relativePath);
+            } else {
+                throw new IllegalStateException("没有可用的目录上下文");
+            }
+            return new Target(uri, null, true);
+        } catch (Throwable e) {
+            Log.w(TAG, "[StateFile] 目录内状态文件不可用，降级到应用私有目录", e);
+            return createPrivateTarget(context, directoryKey);
+        }
+    }
+
+    private static Target createPrivateTarget(Context context, String directoryKey) throws Exception {
+        File base = context.getExternalFilesDir(null);
+        if (base == null) {
+            base = context.getFilesDir();
+        }
+        File dir = new File(base, "state");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("无法创建私有状态目录: " + dir);
+        }
+        String hash = Integer.toHexString(
+                (directoryKey == null ? "" : directoryKey).hashCode());
+        File file = new File(dir, "tvpicview_state_" + hash + ".json");
+        if (!file.exists()) {
+            try (FileOutputStream output = new FileOutputStream(file)) {
+                output.write("{\"version\":1,\"items\":{}}"
+                        .getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        Log.i(TAG, "[StateFile] 使用私有状态文件: " + file);
+        return new Target(null, file, false);
     }
 
     private static Uri findOrCreateSaf(Context context, Uri treeUri) throws Exception {
@@ -65,7 +118,7 @@ public final class ActionStateStore {
             if (cursor != null) {
                 while (cursor.moveToNext()) {
                     String name = cursor.getString(1);
-                    if (FILE_NAME.equals(name)) {
+                    if (name != null && name.startsWith(FILE_NAME)) {
                         return DocumentsContract.buildDocumentUriUsingTree(
                                 treeUri, cursor.getString(0));
                     }
@@ -121,7 +174,6 @@ public final class ActionStateStore {
         Uri firstCollection;
         String firstMime;
         if (!"external_primary".equals(volumeName)) {
-            // U 盘等外部卷可能允许 Files 集合写入，优先尝试保留 .json 扩展名。
             firstCollection = filesUri;
             firstMime = MIME_JSON;
         } else if (lower.startsWith("movies/")) {
@@ -138,8 +190,6 @@ public final class ActionStateStore {
             firstMime = MIME_JSON;
         }
 
-        // 部分电视只允许把文件写进媒体集合的指定目录。用匹配的媒体集合
-        // 承载 tvpicview_state.json，扫描时会按文件名跳过它。
         Uri[] collections = new Uri[]{firstCollection, filesUri, videosUri, imagesUri};
         String[] mimes = new String[]{firstMime, MIME_JSON, "video/mp4", "image/jpeg"};
         Exception lastError = null;
@@ -204,24 +254,23 @@ public final class ActionStateStore {
         return created;
     }
 
-    public static Map<String, String> read(Context context, Uri uri) throws Exception {
+    public static Map<String, String> read(Context context, Target target) throws Exception {
         Map<String, String> result = new HashMap<>();
-        if (uri == null) {
+        if (target == null) {
             return result;
         }
-        ContentResolver resolver = context.getContentResolver();
+
         String json;
-        try (InputStream input = resolver.openInputStream(uri)) {
-            if (input == null) {
-                return result;
+        if (target.uri != null) {
+            try (InputStream input = context.getContentResolver().openInputStream(target.uri)) {
+                json = readStream(input);
             }
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-            int length;
-            while ((length = input.read(buffer)) != -1) {
-                output.write(buffer, 0, length);
+        } else if (target.file != null) {
+            try (InputStream input = new FileInputStream(target.file)) {
+                json = readStream(input);
             }
-            json = output.toString(StandardCharsets.UTF_8.name());
+        } else {
+            return result;
         }
 
         if (json == null || json.trim().length() == 0) {
@@ -243,9 +292,22 @@ public final class ActionStateStore {
         return result;
     }
 
-    public static void write(Context context, Uri uri, String directoryKey,
+    private static String readStream(InputStream input) throws Exception {
+        if (input == null) {
+            return "";
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int length;
+        while ((length = input.read(buffer)) != -1) {
+            output.write(buffer, 0, length);
+        }
+        return output.toString(StandardCharsets.UTF_8.name());
+    }
+
+    public static void write(Context context, Target target, String directoryKey,
                              Map<String, String> states) throws Exception {
-        if (uri == null) {
+        if (target == null) {
             throw new IllegalStateException("状态文件 URI 为空");
         }
         JSONObject root = new JSONObject();
@@ -258,13 +320,23 @@ public final class ActionStateStore {
         }
         root.put("items", items);
 
-        ContentResolver resolver = context.getContentResolver();
-        try (OutputStream output = resolver.openOutputStream(uri, "wt")) {
-            if (output == null) {
-                throw new IllegalStateException("无法打开状态文件写入");
+        byte[] bytes = root.toString(2).getBytes(StandardCharsets.UTF_8);
+        if (target.uri != null) {
+            ContentResolver resolver = context.getContentResolver();
+            try (OutputStream output = resolver.openOutputStream(target.uri, "wt")) {
+                if (output == null) {
+                    throw new IllegalStateException("无法打开状态文件写入");
+                }
+                output.write(bytes);
             }
-            output.write(root.toString(2).getBytes(StandardCharsets.UTF_8));
+        } else if (target.file != null) {
+            try (FileOutputStream output = new FileOutputStream(target.file)) {
+                output.write(bytes);
+            }
+        } else {
+            throw new IllegalStateException("状态文件目标为空");
         }
-        Log.i(TAG, "[StateFile] 已保存 " + FILE_NAME + " entries=" + states.size());
+        Log.i(TAG, "[StateFile] 已保存 " + target.describe()
+                + " entries=" + states.size());
     }
 }

@@ -3,13 +3,10 @@ package com.kkorpse.tvpicview;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ActivityNotFoundException;
 import android.content.ContentUris;
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -17,8 +14,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.BaseColumns;
-import android.provider.DocumentsContract;
-import android.provider.DocumentsContract.Document;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
@@ -46,10 +41,8 @@ import java.util.Random;
 public class MainActivity extends Activity {
 
     private static final String TAG = "TvPicView";
-    private static final int REQ_PICK_DIR = 1001;
     private static final int REQ_MEDIA_PERM = 1002;
     private static final int MAX_FILES = 2000;
-    private static final int MAX_DEPTH = 8;
     private static final int MAX_LOG_LINES = 800;
     private static final int MAX_ERRORS = 50;
 
@@ -60,18 +53,18 @@ public class MainActivity extends Activity {
     private TextView statusView;
     private TextView countView;
     private TextView logButton;
-    private Button pickButton;
-    private Button mediaButton;
     private Button playButton;
+    private Button mediaButton;
     private Button settingsButton;
 
-    private Uri treeUri;
     private boolean usingMediaBucket;
-    private long mediaBucketId = -1L;
+    private long mediaBucketId = Long.MIN_VALUE;
     private String mediaBucketName;
     private String mediaStoreVolumeName;
     private String mediaStoreRelativePath;
-    private boolean autoPlayPending;
+    private boolean playAfterDirectorySelection;
+    private boolean scanning;
+    private List<PlaybackQueue.Item> pendingPlayItems;
 
     private final Deque<String> diagnostics = new ArrayDeque<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
@@ -93,28 +86,25 @@ public class MainActivity extends Activity {
         statusView = findViewById(R.id.statusView);
         countView = findViewById(R.id.countView);
         logButton = findViewById(R.id.logButton);
-        pickButton = findViewById(R.id.pickButton);
-        mediaButton = findViewById(R.id.mediaButton);
         playButton = findViewById(R.id.playButton);
+        mediaButton = findViewById(R.id.mediaButton);
         settingsButton = findViewById(R.id.settingsButton);
 
-        pickButton.setOnClickListener(v -> pickDirectory());
-        mediaButton.setOnClickListener(v -> chooseMediaLibrary());
         playButton.setOnClickListener(v -> play());
+        mediaButton.setOnClickListener(v -> {
+            playAfterDirectorySelection = false;
+            chooseMediaLibrary();
+        });
         settingsButton.setOnClickListener(v -> {
             log("Settings", "打开播放设置");
             startActivity(new Intent(this, SettingsActivity.class));
         });
         logButton.setOnClickListener(v -> showLogDialog());
-        playButton.setEnabled(false);
 
         logEnvironment();
-        pickButton.post(pickButton::requestFocus);
+        restoreLastDirectory();
+        playButton.post(playButton::requestFocus);
     }
-
-    // ------------------------------------------------------------
-    // 启动环境与诊断
-    // ------------------------------------------------------------
 
     private void logEnvironment() {
         String version = "unknown";
@@ -140,26 +130,6 @@ public class MainActivity extends Activity {
                 + ", touchscreen=" + pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN));
         log("Storage", "externalState=" + Environment.getExternalStorageState());
         log("Permission", mediaPermissionSummary());
-        log("SAF", "已持久化目录权限数量="
-                + getContentResolver().getPersistedUriPermissions().size());
-
-        Intent intent = buildTreePickerIntent();
-        ResolveInfo info = pm.resolveActivity(intent, 0);
-        if (info == null || info.activityInfo == null) {
-            log("Picker", "系统文件选择器：未找到");
-        } else {
-            log("Picker", "系统文件选择器=" + info.activityInfo.packageName + "/"
-                    + info.activityInfo.name + " stub=" + isStubFilePicker(info.activityInfo));
-        }
-    }
-
-    private Intent buildTreePickerIntent() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        return intent;
     }
 
     private void log(String stage, String message) {
@@ -274,369 +244,73 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------
-    // 目录选择：系统选择器 / 媒体库兜底
+    // 目录
     // ------------------------------------------------------------
 
-    private void pickDirectory() {
-        Intent intent = buildTreePickerIntent();
-        ResolveInfo resolveInfo = getPackageManager().resolveActivity(intent, 0);
-
-        if (resolveInfo == null || resolveInfo.activityInfo == null) {
-            log("Picker", "没有系统文件选择器");
-            Toast.makeText(this, R.string.picker_missing_fallback, Toast.LENGTH_LONG).show();
-            showMediaLibraryFallback("系统选择器缺失");
+    private void restoreLastDirectory() {
+        if (!PlaybackSettings.hasMediaDirectory(this)) {
+            usingMediaBucket = false;
+            mediaBucketId = Long.MIN_VALUE;
+            mediaBucketName = null;
+            mediaStoreVolumeName = null;
+            mediaStoreRelativePath = null;
+            pathView.setText(R.string.no_directory);
+            countView.setText(R.string.not_scanned);
+            setStatus(getString(R.string.select_hint), false);
+            log("Directory", "没有上次目录");
             return;
         }
 
-        String component = resolveInfo.activityInfo.packageName + "/"
-                + resolveInfo.activityInfo.name;
-        boolean stub = isStubFilePicker(resolveInfo.activityInfo);
-        log("Picker", "resolve=" + component + " stub=" + stub);
-
-        if (stub) {
-            Toast.makeText(this, R.string.picker_stub_fallback, Toast.LENGTH_LONG).show();
-            showMediaLibraryFallback("系统选择器是 Stub: " + component);
-            return;
-        }
-
-        try {
-            log("Picker", "启动系统文件选择器");
-            startActivityForResult(intent, REQ_PICK_DIR);
-        } catch (ActivityNotFoundException e) {
-            logError("Picker", "系统文件选择器不存在", e);
-            Toast.makeText(this, R.string.picker_missing_fallback, Toast.LENGTH_LONG).show();
-            showMediaLibraryFallback("ActivityNotFoundException");
-        } catch (Exception e) {
-            logError("Picker", "启动系统文件选择器失败", e);
-            setStatus(getString(R.string.picker_missing_fallback), true);
-            showMediaLibraryFallback("启动异常: " + errorSummary(e));
-        }
-    }
-
-    /**
-     * 部分 Android TV / Google TV 固件把 DocumentsUI 换成空壳 Activity：
-     * 不崩溃，也不显示选择器。识别后直接走 MediaStore。
-     */
-    private boolean isStubFilePicker(ActivityInfo info) {
-        String packageName = info.packageName == null
-                ? "" : info.packageName.toLowerCase(Locale.ROOT);
-        String className = info.name == null
-                ? "" : info.name.toLowerCase(Locale.ROOT);
-        return packageName.contains("frameworkpackagestubs")
-                || packageName.contains(".stub")
-                || className.contains("stub");
+        usingMediaBucket = true;
+        mediaBucketId = PlaybackSettings.getMediaBucketId(this);
+        mediaBucketName = PlaybackSettings.getMediaBucketName(this);
+        mediaStoreVolumeName = PlaybackSettings.getMediaVolumeName(this);
+        mediaStoreRelativePath = PlaybackSettings.getMediaRelativePath(this);
+        pathView.setText(getString(R.string.media_selected_path,
+                mediaBucketName == null ? "媒体库" : mediaBucketName));
+        countView.setText(R.string.not_scanned);
+        setStatus(getString(R.string.restored_directory), false);
+        log("Directory", "恢复上次目录 bucketId=" + mediaBucketId
+                + " name=" + mediaBucketName
+                + " volume=" + mediaStoreVolumeName
+                + " relative=" + mediaStoreRelativePath);
     }
 
     private void chooseMediaLibrary() {
-        log("MediaStore", "用户点击“媒体库目录”");
-        showMediaLibraryFallback("用户主动选择");
-    }
-
-    private void showMediaLibraryFallback(String reason) {
-        log("MediaStore", "回退原因: " + reason);
+        log("MediaStore", "打开媒体库目录选择");
         if (!hasMediaPermission()) {
-            log("Permission", "媒体权限不足: " + mediaPermissionSummary());
             requestMediaPermission();
             return;
         }
         showMediaBucketDialog();
     }
 
-    private boolean hasMediaPermission() {
-        if (Build.VERSION.SDK_INT >= 34
-                && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-                == PackageManager.PERMISSION_GRANTED) {
-            return true;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES)
-                    == PackageManager.PERMISSION_GRANTED
-                    || checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO)
-                    == PackageManager.PERMISSION_GRANTED;
-        }
-        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private void requestMediaPermission() {
-        log("Permission", "请求媒体权限: " + mediaPermissionSummary());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(new String[]{
-                    Manifest.permission.READ_MEDIA_IMAGES,
-                    Manifest.permission.READ_MEDIA_VIDEO
-            }, REQ_MEDIA_PERM);
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            requestPermissions(new String[]{
-                    Manifest.permission.READ_EXTERNAL_STORAGE
-            }, REQ_MEDIA_PERM);
-        } else {
-            requestPermissions(new String[]{
-                    Manifest.permission.READ_EXTERNAL_STORAGE,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-            }, REQ_MEDIA_PERM);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        log("Permission", "onRequestPermissionsResult request=" + requestCode);
-        for (int i = 0; i < permissions.length; i++) {
-            boolean granted = i < grantResults.length
-                    && grantResults[i] == PackageManager.PERMISSION_GRANTED;
-            log("Permission", permissions[i] + " -> " + (granted ? "GRANTED" : "DENIED"));
-        }
-
-        if (requestCode != REQ_MEDIA_PERM) {
-            return;
-        }
-        if (hasMediaPermission()) {
-            log("Permission", "媒体权限已获得");
-            showMediaBucketDialog();
-        } else {
-            String summary = mediaPermissionSummary();
-            log("Permission", "媒体权限被拒绝: " + summary);
-            setStatus(getString(R.string.permission_denied_detail, summary), true);
-            showPermissionSettingsDialog(summary);
-        }
-    }
-
-    private void showPermissionSettingsDialog(String summary) {
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.permission_dialog_title)
-                .setMessage(getString(R.string.permission_dialog_message, summary))
-                .setPositiveButton(R.string.open_settings, (d, which) -> {
-                    log("Permission", "打开应用设置");
-                    try {
-                        startActivity(new Intent(
-                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:" + getPackageName())));
-                    } catch (Exception e) {
-                        logError("Permission", "打开应用设置失败", e);
-                    }
-                })
-                .setNegativeButton(R.string.cancel, null)
-                .show();
-    }
-
-    private String mediaPermissionSummary() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            StringBuilder summary = new StringBuilder();
-            summary.append("images=")
-                    .append(permissionLabel(Manifest.permission.READ_MEDIA_IMAGES))
-                    .append(", videos=")
-                    .append(permissionLabel(Manifest.permission.READ_MEDIA_VIDEO));
-            if (Build.VERSION.SDK_INT >= 34) {
-                summary.append(", selected=")
-                        .append(permissionLabel(
-                                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED));
-            }
-            return summary.toString();
-        }
-        return "storage=" + permissionLabel(Manifest.permission.READ_EXTERNAL_STORAGE);
-    }
-
-    private String permissionLabel(String permission) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return "n/a";
-        }
-        if (permission.startsWith("android.permission.READ_MEDIA_")
-                && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return "n/a";
-        }
-        if ("android.permission.READ_MEDIA_VISUAL_USER_SELECTED".equals(permission)
-                && Build.VERSION.SDK_INT < 34) {
-            return "n/a";
-        }
-        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-                ? "granted" : "denied";
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        log("Picker", "onActivityResult request=" + requestCode
-                + " result=" + resultCode
-                + " data=" + (data == null ? "null" : String.valueOf(data.getData()))
-                + " flags=0x" + (data == null ? "0" : Integer.toHexString(data.getFlags())));
-
-        if (requestCode != REQ_PICK_DIR) {
-            return;
-        }
-        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
-            log("Picker", "用户取消系统选择器");
-            if (treeUri != null || usingMediaBucket) {
-                setStatus(getString(R.string.ready_to_scan), false);
-            } else {
-                setStatus(getString(R.string.pick_cancelled), false);
-            }
-            return;
-        }
-
-        Uri uri = data.getData();
-        int takeFlags = data.getFlags()
-                & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        try {
-            getContentResolver().takePersistableUriPermission(uri, takeFlags);
-            log("Picker", "已持久化目录权限: " + uri
-                    + " flags=0x" + Integer.toHexString(takeFlags));
-        } catch (SecurityException e) {
-            logError("Picker", "无法持久化目录权限（本次仍可读取）: " + uri, e);
-        }
-
-        treeUri = uri;
-        usingMediaBucket = false;
-        mediaBucketId = -1L;
-        mediaBucketName = null;
-        mediaStoreVolumeName = null;
-        mediaStoreRelativePath = null;
-        autoPlayPending = false;
-
-        countView.setText(R.string.not_scanned);
-        String path = describeTree(uri);
-        pathView.setText(getString(R.string.selected_path, path));
-        setStatus(getString(R.string.ready_to_scan), false);
-        playButton.setEnabled(true);
-        playButton.requestFocus();
-        log("Picker", "已选择系统目录: " + path + " uri=" + uri);
-    }
-
-    // ------------------------------------------------------------
-    // 播放 / 扫描
-    // ------------------------------------------------------------
-
     private void play() {
-        if (autoPlayPending) {
-            log("Play", "自动播放即将开始，忽略重复点击");
-            return;
-        }
-        log("Play", "点击播放 treeUri=" + treeUri
-                + " usingMediaBucket=" + usingMediaBucket
-                + " bucketId=" + mediaBucketId
-                + " bucketName=" + mediaBucketName);
-        if (treeUri != null) {
-            startTreeScan();
-        } else if (usingMediaBucket) {
+        if (usingMediaBucket) {
+            log("Play", "点击播放 bucketId=" + mediaBucketId
+                    + " name=" + mediaBucketName);
             startMediaBucketScan();
-        } else {
-            log("Play", "尚未选择目录");
-            setStatus(getString(R.string.no_directory), true);
-            pickButton.requestFocus();
-        }
-    }
-
-    private void startTreeScan() {
-        final Uri uri = treeUri;
-        final String path = describeTree(uri);
-        setScanning(true);
-        countView.setText(R.string.not_scanned);
-        log("Scan", "开始扫描系统目录: " + path + " uri=" + uri);
-        new Thread(() -> {
-            List<PlaybackQueue.Item> found = new ArrayList<>();
-            int[] counts = new int[]{0, 0};
-            List<String> errors = new ArrayList<>();
-            try {
-                String rootId = DocumentsContract.getTreeDocumentId(uri);
-                log("Scan", "treeDocumentId=" + rootId);
-                scanTreeChildren(uri, rootId, "", 0, found, counts, errors);
-            } catch (Exception e) {
-                addError(errors, errorSummary(e));
-                logError("Scan", "扫描根目录失败", e);
-            }
-            Collections.sort(found);
-            logResults(path, found, counts, errors);
-            final int errorCount = errors.size();
-            final String firstError = errors.isEmpty() ? null : errors.get(0);
-            runOnUiThread(() -> showResults(found, counts, firstError, errorCount));
-        }, "tree-scan").start();
-    }
-
-    private void scanTreeChildren(Uri treeUri, String parentDocumentId, String prefix,
-                                  int depth, List<PlaybackQueue.Item> out, int[] counts,
-                                  List<String> errors) {
-        if (out.size() >= MAX_FILES) {
-            log("Scan", "达到文件上限 " + MAX_FILES + "，停止扫描");
-            return;
-        }
-        if (depth > MAX_DEPTH) {
-            log("Scan", "超过最大目录深度 " + MAX_DEPTH + "，跳过: " + prefix);
             return;
         }
 
-        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                treeUri, parentDocumentId);
-        String[] projection = new String[]{
-                Document.COLUMN_DOCUMENT_ID,
-                Document.COLUMN_DISPLAY_NAME,
-                Document.COLUMN_MIME_TYPE
-        };
-        log("Scan", "进入目录: " + (prefix.length() == 0 ? "(根目录)" : prefix)
-                + " depth=" + depth);
-
-        Cursor cursor = null;
-        try {
-            cursor = getContentResolver().query(childrenUri, projection, null, null, null);
-            if (cursor == null) {
-                throw new IllegalStateException("ContentResolver.query 返回 null");
-            }
-            log("Scan", "目录子项数量=" + cursor.getCount()
-                    + " uri=" + childrenUri);
-
-            while (cursor.moveToNext() && out.size() < MAX_FILES) {
-                String documentId = cursor.getString(0);
-                String name = cursor.getString(1);
-                String mime = cursor.getString(2);
-                if (name == null) {
-                    name = "(未命名)";
-                }
-                if (name.startsWith(ActionStateStore.FILE_NAME)) {
-                    log("Scan", "跳过状态文件: " + prefix + name);
-                    continue;
-                }
-
-                if (Document.MIME_TYPE_DIR.equals(mime)) {
-                    if ("收藏".equals(name) || "删除".equals(name)) {
-                        log("Scan", "跳过操作目录: " + prefix + name);
-                        continue;
-                    }
-                    log("Scan", "发现子目录: " + prefix + name);
-                    scanTreeChildren(treeUri, documentId, prefix + name + "/",
-                            depth + 1, out, counts, errors);
-                } else if (isVideo(mime, name)) {
-                    Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, true,
-                            mime, null, null, parentDocumentId));
-                    counts[0]++;
-                    log("Scan", "视频: " + prefix + name + " mime=" + mime
-                            + " uri=" + fileUri);
-                } else if (isImage(mime, name)) {
-                    Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId);
-                    out.add(new PlaybackQueue.Item(prefix + name, fileUri, false,
-                            mime, null, null, parentDocumentId));
-                    counts[1]++;
-                    log("Scan", "图片: " + prefix + name + " mime=" + mime
-                            + " uri=" + fileUri);
-                } else {
-                    log("Scan", "跳过非媒体文件: " + prefix + name + " mime=" + mime);
-                }
-            }
-        } catch (Exception e) {
-            addError(errors, prefix + " -> " + errorSummary(e));
-            logError("Scan", "读取目录失败: " + (prefix.length() == 0 ? "(根目录)" : prefix), e);
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
+        log("Play", "没有可用目录，跳转到媒体库目录选择");
+        playAfterDirectorySelection = true;
+        setStatus(getString(R.string.no_directory_hint), false);
+        chooseMediaLibrary();
     }
 
     private void startMediaBucketScan() {
         final long bucketId = mediaBucketId;
         final String bucketName = mediaBucketName;
+        if (scanning) {
+            log("Play", "正在扫描，忽略重复操作");
+            return;
+        }
         setScanning(true);
+        pendingPlayItems = null;
         countView.setText(R.string.not_scanned);
         log("MediaStore", "开始扫描媒体库目录: " + bucketName + " bucketId=" + bucketId);
+
         new Thread(() -> {
             List<PlaybackQueue.Item> found = new ArrayList<>();
             int[] counts = new int[]{0, 0};
@@ -659,7 +333,7 @@ public class MainActivity extends Activity {
             logResults(bucketName == null ? "媒体库" : bucketName, found, counts, errors);
             final int errorCount = errors.size();
             final String firstError = errors.isEmpty() ? null : errors.get(0);
-            runOnUiThread(() -> showResults(found, counts, firstError, errorCount));
+            runOnUiThread(() -> showScanResult(found, counts, firstError, errorCount));
         }, "media-scan").start();
     }
 
@@ -724,53 +398,107 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showResults(List<PlaybackQueue.Item> found, int[] counts,
-                             String error, int errorCount) {
-        runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) {
-                return;
-            }
-            setScanning(false);
-
-            if (error != null && found.isEmpty()) {
-                countView.setText(R.string.not_scanned);
-                log("Result", "扫描失败: " + error);
-                setStatus(getString(R.string.scan_error_detail, error), true);
-                pickButton.requestFocus();
-                return;
-            }
-
-            countView.setText(getString(R.string.media_counts, counts[0], counts[1]));
-
-            if (found.isEmpty()) {
-                log("Result", "扫描完成: 0 个文件");
-                setStatus(getString(R.string.scan_empty), false);
-                pickButton.requestFocus();
-                return;
-            }
-
-            log("Result", "扫描完成: " + found.size() + " 个文件"
-                    + "，视频=" + counts[0] + "，图片=" + counts[1]
-                    + "，错误=" + errorCount);
-            if (errorCount > 0) {
-                setStatus(getString(R.string.scan_result_warning,
-                        found.size(), counts[0], counts[1], errorCount), true);
-            } else {
-                setStatus(getString(R.string.scan_done_autoplay), false);
-            }
-
-            autoPlayPending = true;
-            playButton.postDelayed(() -> startAutoPlay(found), 600);
-        });
-    }
-
-    private void startAutoPlay(List<PlaybackQueue.Item> items) {
-        if (!autoPlayPending || isFinishing() || isDestroyed()
-                || !hasWindowFocus() || items.isEmpty()) {
-            autoPlayPending = false;
+    private void showScanResult(List<PlaybackQueue.Item> found, int[] counts,
+                                String error, int errorCount) {
+        if (isFinishing() || isDestroyed()) {
             return;
         }
-        autoPlayPending = false;
+        setScanning(false);
+        countView.setText(getString(R.string.media_counts, counts[0], counts[1]));
+        PlaybackSettings.saveMediaDirectory(this, mediaBucketId, mediaBucketName,
+                mediaStoreVolumeName, mediaStoreRelativePath);
+
+        if (error != null && found.isEmpty()) {
+            log("Result", "扫描失败: " + error);
+            setStatus(getString(R.string.scan_error_detail, error), true);
+            showPlayConfirm(found, counts, error, errorCount);
+            return;
+        }
+
+        if (found.isEmpty()) {
+            log("Result", "扫描完成: 0 个文件");
+            setStatus(getString(R.string.scan_empty), false);
+            showPlayConfirm(found, counts, null, errorCount);
+            return;
+        }
+
+        log("Result", "扫描完成: " + found.size() + " 个文件"
+                + "，视频=" + counts[0] + "，图片=" + counts[1]
+                + "，错误=" + errorCount);
+        if (errorCount > 0) {
+            setStatus(getString(R.string.scan_result_warning,
+                    found.size(), counts[0], counts[1], errorCount), true);
+        } else {
+            setStatus(getString(R.string.scan_done_confirm), false);
+        }
+        showPlayConfirm(found, counts, null, errorCount);
+    }
+
+    private void showPlayConfirm(List<PlaybackQueue.Item> found, int[] counts,
+                                 String error, int errorCount) {
+        String directoryName = mediaBucketName == null ? "媒体库" : mediaBucketName;
+        String message;
+        if (error != null && found.isEmpty()) {
+            message = getString(R.string.play_confirm_error,
+                    directoryName, counts[0], counts[1], error);
+        } else if (found.isEmpty()) {
+            message = getString(R.string.play_confirm_empty,
+                    directoryName, counts[0], counts[1]);
+        } else {
+            message = getString(R.string.play_confirm_message,
+                    directoryName, counts[0], counts[1]);
+            if (errorCount > 0) {
+                message += "\n\n" + getString(R.string.play_confirm_warning, errorCount);
+            }
+        }
+
+        pendingPlayItems = found.isEmpty() ? null : new ArrayList<>(found);
+        final boolean canPlay = !found.isEmpty();
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.play_confirm_title)
+                .setMessage(message)
+                .setPositiveButton(R.string.confirm, (d, which) -> {
+                    List<PlaybackQueue.Item> items = pendingPlayItems;
+                    pendingPlayItems = null;
+                    if (items != null && !items.isEmpty()) {
+                        startConfirmedPlayback(items);
+                    }
+                })
+                .setNegativeButton(R.string.back, (d, which) -> {
+                    pendingPlayItems = null;
+                    setStatus(getString(R.string.scan_cancelled), false);
+                    playButton.requestFocus();
+                })
+                .setOnDismissListener(d -> {
+                    if (pendingPlayItems != null) {
+                        pendingPlayItems = null;
+                        setStatus(getString(R.string.scan_cancelled), false);
+                        playButton.requestFocus();
+                    }
+                })
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button back = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (ok != null) {
+                ok.setEnabled(canPlay);
+                if (canPlay) {
+                    ok.requestFocus();
+                } else if (back != null) {
+                    back.requestFocus();
+                }
+            }
+        });
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.show();
+    }
+
+    private void startConfirmedPlayback(List<PlaybackQueue.Item> items) {
+        if (items.isEmpty()) {
+            return;
+        }
 
         boolean random = PlaybackSettings.isRandom(this);
         boolean resume = PlaybackSettings.isResume(this);
@@ -787,33 +515,23 @@ public class MainActivity extends Activity {
             startIndex = new Random().nextInt(items.size());
         }
 
-        log("Play", "自动播放 total=" + items.size()
-                + " random=" + random
-                + " resume=" + resume
-                + " savedIndex=" + savedIndex
-                + " startIndex=" + startIndex);
-        startPlayback(items, startIndex);
-    }
-
-    private void startPlayback(List<PlaybackQueue.Item> items, int startIndex) {
-        if (items.isEmpty()) {
-            return;
-        }
-        int index = Math.max(0, Math.min(startIndex, items.size() - 1));
-        PlaybackQueue.Item item = items.get(index);
         PlaybackQueue.setDirectoryContext(
-                treeUri == null ? null : treeUri.toString(),
-                mediaStoreVolumeName,
-                mediaStoreRelativePath);
-        PlaybackQueue.set(items, currentDirectoryKey(), index);
+                null, mediaStoreVolumeName, mediaStoreRelativePath);
+        PlaybackQueue.set(items, currentDirectoryKey(), startIndex);
 
+        PlaybackQueue.Item item = items.get(startIndex);
         Intent intent = new Intent(this, PlayerActivity.class);
         intent.setData(item.uri);
         intent.putExtra(PlayerActivity.EXTRA_NAME, item.name);
         intent.putExtra(PlayerActivity.EXTRA_IS_VIDEO, item.video);
-        log("Play", "启动播放 name=" + item.name
-                + " index=" + index + " total=" + items.size()
-                + " uri=" + item.uri);
+
+        log("Play", "确认播放 total=" + items.size()
+                + " random=" + random
+                + " resume=" + resume
+                + " savedIndex=" + savedIndex
+                + " startIndex=" + startIndex
+                + " name=" + item.name);
+        setStatus(getString(R.string.auto_playing), false);
         try {
             startActivity(intent);
         } catch (Exception e) {
@@ -823,13 +541,7 @@ public class MainActivity extends Activity {
     }
 
     private String currentDirectoryKey() {
-        if (treeUri != null) {
-            return "tree:" + treeUri;
-        }
-        if (usingMediaBucket) {
-            return "bucket:" + mediaBucketId + ":" + mediaBucketName;
-        }
-        return "none";
+        return "bucket:" + mediaBucketId + ":" + mediaBucketName;
     }
 
     private void logResults(String directory, List<PlaybackQueue.Item> found,
@@ -901,6 +613,7 @@ public class MainActivity extends Activity {
                             log("MediaStore", "错误: " + error);
                         }
                     }
+                    playAfterDirectorySelection = false;
                     return;
                 }
 
@@ -919,23 +632,37 @@ public class MainActivity extends Activity {
                             mediaBucketName = entry.getValue();
                             mediaStoreVolumeName = null;
                             mediaStoreRelativePath = null;
-                            treeUri = null;
-                            autoPlayPending = false;
-
-                            countView.setText(R.string.not_scanned);
                             pathView.setText(getString(
                                     R.string.media_selected_path, mediaBucketName));
+                            countView.setText(R.string.not_scanned);
                             setStatus(getString(R.string.ready_to_scan), false);
                             playButton.setEnabled(true);
                             playButton.requestFocus();
+                            PlaybackSettings.saveMediaDirectory(
+                                    MainActivity.this,
+                                    mediaBucketId,
+                                    mediaBucketName,
+                                    mediaStoreVolumeName,
+                                    mediaStoreRelativePath);
                             log("Picker", "已选择媒体目录: " + mediaBucketName
-                                    + " bucketId=" + mediaBucketId);
+                                    + " bucketId=" + mediaBucketId
+                                    + " volume=" + mediaStoreVolumeName
+                                    + " relative=" + mediaStoreRelativePath);
+
+                            boolean shouldPlay = playAfterDirectorySelection;
+                            playAfterDirectorySelection = false;
+                            if (shouldPlay) {
+                                playButton.postDelayed(MainActivity.this::play, 300);
+                            }
                         })
                         .setNegativeButton(R.string.cancel,
                                 (d, which) -> log("Picker", "用户取消媒体目录选择"))
                         .setOnDismissListener(d -> {
                             log("MediaStore", "媒体目录对话框关闭");
-                            refreshSelectionStatus();
+                            playAfterDirectorySelection = false;
+                            if (!scanning) {
+                                refreshSelectionStatus();
+                            }
                         })
                         .create();
 
@@ -983,7 +710,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshSelectionStatus() {
-        if (treeUri != null || usingMediaBucket) {
+        if (usingMediaBucket) {
             setStatus(getString(R.string.ready_to_scan), false);
         } else {
             setStatus(getString(R.string.select_hint), false);
@@ -991,15 +718,130 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------
+    // 权限
+    // ------------------------------------------------------------
+
+    private boolean hasMediaPermission() {
+        if (Build.VERSION.SDK_INT >= 34
+                && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                == PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES)
+                    == PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestMediaPermission() {
+        log("Permission", "请求媒体权限: " + mediaPermissionSummary());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(new String[]{
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO
+            }, REQ_MEDIA_PERM);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            requestPermissions(new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            }, REQ_MEDIA_PERM);
+        } else {
+            requestPermissions(new String[]{
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, REQ_MEDIA_PERM);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        log("Permission", "onRequestPermissionsResult request=" + requestCode);
+        for (int i = 0; i < permissions.length; i++) {
+            boolean granted = i < grantResults.length
+                    && grantResults[i] == PackageManager.PERMISSION_GRANTED;
+            log("Permission", permissions[i] + " -> " + (granted ? "GRANTED" : "DENIED"));
+        }
+
+        if (requestCode != REQ_MEDIA_PERM) {
+            return;
+        }
+        if (hasMediaPermission()) {
+            log("Permission", "媒体权限已获得");
+            showMediaBucketDialog();
+        } else {
+            playAfterDirectorySelection = false;
+            String summary = mediaPermissionSummary();
+            log("Permission", "媒体权限被拒绝: " + summary);
+            setStatus(getString(R.string.permission_denied_detail, summary), true);
+            showPermissionSettingsDialog(summary);
+        }
+    }
+
+    private void showPermissionSettingsDialog(String summary) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.permission_dialog_title)
+                .setMessage(getString(R.string.permission_dialog_message, summary))
+                .setPositiveButton(R.string.open_settings, (d, which) -> {
+                    log("Permission", "打开应用设置");
+                    try {
+                        startActivity(new Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        logError("Permission", "打开应用设置失败", e);
+                    }
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    private String mediaPermissionSummary() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            StringBuilder summary = new StringBuilder();
+            summary.append("images=")
+                    .append(permissionLabel(Manifest.permission.READ_MEDIA_IMAGES))
+                    .append(", videos=")
+                    .append(permissionLabel(Manifest.permission.READ_MEDIA_VIDEO));
+            if (Build.VERSION.SDK_INT >= 34) {
+                summary.append(", selected=")
+                        .append(permissionLabel(
+                                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED));
+            }
+            return summary.toString();
+        }
+        return "storage=" + permissionLabel(Manifest.permission.READ_EXTERNAL_STORAGE);
+    }
+
+    private String permissionLabel(String permission) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return "n/a";
+        }
+        if (permission.startsWith("android.permission.READ_MEDIA_")
+                && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return "n/a";
+        }
+        if ("android.permission.READ_MEDIA_VISUAL_USER_SELECTED".equals(permission)
+                && Build.VERSION.SDK_INT < 34) {
+            return "n/a";
+        }
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+                ? "granted" : "denied";
+    }
+
+    // ------------------------------------------------------------
     // 通用
     // ------------------------------------------------------------
 
-    private void setScanning(boolean scanning) {
-        pickButton.setEnabled(!scanning);
-        mediaButton.setEnabled(!scanning);
-        playButton.setEnabled(!scanning);
-        settingsButton.setEnabled(!scanning);
-        if (scanning) {
+    private void setScanning(boolean value) {
+        scanning = value;
+        playButton.setEnabled(!value);
+        mediaButton.setEnabled(!value);
+        settingsButton.setEnabled(!value);
+        if (value) {
             setStatus(getString(R.string.scanning), false);
         }
     }
@@ -1007,18 +849,6 @@ public class MainActivity extends Activity {
     private void addError(List<String> errors, String message) {
         if (errors.size() < MAX_ERRORS) {
             errors.add(message);
-        }
-    }
-
-    private String describeTree(Uri uri) {
-        try {
-            String documentId = DocumentsContract.getTreeDocumentId(uri);
-            int colon = documentId.indexOf(':');
-            String path = colon >= 0 ? documentId.substring(colon + 1) : documentId;
-            return path.length() == 0 ? "存储根目录" : path;
-        } catch (Exception e) {
-            logError("SAF", "解析目录路径失败: " + uri, e);
-            return uri.toString();
         }
     }
 
@@ -1036,75 +866,16 @@ public class MainActivity extends Activity {
         return MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
     }
 
-    private static boolean isVideo(String mime, String name) {
-        if (mime != null && mime.startsWith("video/")) {
-            return true;
-        }
-        switch (extension(name)) {
-            case "mp4":
-            case "mkv":
-            case "avi":
-            case "mov":
-            case "webm":
-            case "m4v":
-            case "ts":
-            case "m2ts":
-            case "mpg":
-            case "mpeg":
-            case "3gp":
-            case "flv":
-            case "wmv":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static boolean isImage(String mime, String name) {
-        if (mime != null && mime.startsWith("image/")) {
-            return true;
-        }
-        switch (extension(name)) {
-            case "jpg":
-            case "jpeg":
-            case "png":
-            case "gif":
-            case "webp":
-            case "bmp":
-            case "heic":
-            case "heif":
-            case "avif":
-            case "tif":
-            case "tiff":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static String extension(String name) {
-        int dot = name.lastIndexOf('.');
-        if (dot < 0 || dot == name.length() - 1) {
-            return "";
-        }
-        return name.substring(dot + 1).toLowerCase(Locale.ROOT);
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
         if (playButton == null) {
             return;
         }
-        if (treeUri != null || usingMediaBucket) {
-            if (!autoPlayPending) {
-                setStatus(getString(R.string.ready_to_scan), false);
-            }
-            playButton.post(playButton::requestFocus);
-        } else {
-            setStatus(getString(R.string.select_hint), false);
-            pickButton.post(pickButton::requestFocus);
+        if (!scanning) {
+            refreshSelectionStatus();
         }
+        playButton.post(playButton::requestFocus);
     }
 
     private int dp(int value) {

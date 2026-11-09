@@ -1,21 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TvPicView</string>
-    <string name="subtitle">选择目录，自动连续播放全部图片和视频</string>
+    <string name="subtitle">自动播放上次媒体库目录中的图片和视频</string>
     <string name="pick_directory">选择目录</string>
-    <string name="media_directory">媒体库目录</string>
+    <string name="media_directory">选择媒体库目录</string>
     <string name="play">播放</string>
     <string name="no_directory">尚未选择目录</string>
     <string name="selected_path">目录：%1$s</string>
     <string name="media_selected_path">目录：%1$s（媒体库）</string>
-    <string name="select_hint">请选择包含图片/视频的目录</string>
-    <string name="ready_to_scan">目录已选择，点击“播放”开始自动播放</string>
+    <string name="select_hint">请选择媒体库目录，或直接点“播放”</string>
+    <string name="ready_to_scan">目录已选择，点“播放”扫描并确认</string>
+    <string name="restored_directory">已恢复上次目录，点“播放”扫描并确认</string>
+    <string name="no_directory_hint">没有可用目录，请先选择媒体库目录</string>
     <string name="scanning">正在扫描，请稍候…</string>
     <string name="scan_result">共 %1$d 个文件：视频 %2$d，图片 %3$d</string>
     <string name="scan_empty">该目录下没有找到图片或视频</string>
     <string name="scan_error">扫描失败：%1$s</string>
     <string name="scan_error_detail">扫描失败：%1$s\n按“诊断日志”查看完整错误</string>
     <string name="scan_result_warning">共 %1$d 个文件：视频 %2$d，图片 %3$d；%4$d 个目录读取失败，按“诊断日志”查看</string>
+    <string name="scan_done_confirm">扫描完成，请确认播放</string>
+    <string name="scan_cancelled">已返回，重新点“播放”可刷新列表</string>
+    <string name="play_confirm_title">播放确认</string>
+    <string name="play_confirm_message">目录：%1$s\n视频 %2$d 个 · 图片 %3$d 个\n\n确定开始播放。\n返回后重新点“播放”可刷新列表。</string>
+    <string name="play_confirm_empty">目录：%1$s\n视频 0 个 · 图片 0 个\n\n没有找到图片或视频。\n返回后重新点“播放”刷新列表。</string>
+    <string name="play_confirm_error">目录：%1$s\n视频 %2$d 个 · 图片 %3$d 个\n\n扫描错误：%4$s\n返回后重新点“播放”刷新列表。</string>
+    <string name="play_confirm_warning">%1$d 个目录读取失败，完整错误见诊断日志。</string>
+    <string name="confirm">确定</string>
+    <string name="back">返回</string>
     <string name="pick_cancelled">已取消目录选择</string>
     <string name="permission_denied">未获得媒体读取权限，无法浏览媒体库</string>
     <string name="permission_denied_detail">未获得媒体权限（%1$s），无法浏览媒体库\n按“诊断日志”查看权限状态</string>
@@ -35,7 +46,7 @@
     <string name="permission_dialog_title">媒体权限未授予</string>
     <string name="permission_dialog_message">请在应用设置中允许 TvPicView 访问照片和视频。\n\n当前权限：%1$s</string>
     <string name="hint">遥控器：方向键选择，OK 播放；返回键退出播放；出错时请按“诊断日志”或执行 adb logcat -s TvPicView</string>
-    <string name="main_hint">全屏播放：OK 播放/暂停 · 左右快进 10 秒 · 返回退出</string>
+    <string name="main_hint">全屏：上收藏 · 下删除 · 左右切换 · 视频暂停后左右快退/快进</string>
     <string name="cancel">取消</string>
     <string name="settings">设置</string>
     <string name="settings_title">播放设置</string>

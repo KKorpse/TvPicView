@@ -88,7 +88,7 @@ public class PlayerActivity extends Activity {
     private boolean videoPaused;
 
     private final Map<String, String> actionStates = new HashMap<>();
-    private Uri actionFileUri;
+    private ActionStateStore.Target actionFile;
     private ExecutorService actionWriter;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -172,13 +172,20 @@ public class PlayerActivity extends Activity {
 
     private void loadActionFile() {
         try {
-            actionFileUri = ActionStateStore.findOrCreate(this,
+            actionFile = ActionStateStore.findOrCreate(this,
+                    directoryKey,
                     PlaybackQueue.getTreeUri(),
                     PlaybackQueue.getVolumeName(),
                     PlaybackQueue.getRelativePath());
-            actionStates.putAll(ActionStateStore.read(this, actionFileUri));
-            log("状态文件=" + actionFileUri
+            actionStates.putAll(ActionStateStore.read(this, actionFile));
+            log("状态文件=" + actionFile.describe()
+                    + " inDirectory=" + actionFile.inDirectory
                     + " entries=" + actionStates.size());
+            if (!actionFile.inDirectory) {
+                Toast.makeText(this,
+                        "目录不可写，状态文件已保存到应用私有目录",
+                        Toast.LENGTH_LONG).show();
+            }
         } catch (Throwable e) {
             logError("打开状态文件失败（收藏/删除标记将不可用）", e);
             Toast.makeText(this,
@@ -188,16 +195,23 @@ public class PlayerActivity extends Activity {
     }
 
     private boolean ensureActionFile() {
-        if (actionFileUri != null) {
+        if (actionFile != null) {
             return true;
         }
         try {
-            actionFileUri = ActionStateStore.findOrCreate(this,
+            actionFile = ActionStateStore.findOrCreate(this,
+                    directoryKey,
                     PlaybackQueue.getTreeUri(),
                     PlaybackQueue.getVolumeName(),
                     PlaybackQueue.getRelativePath());
-            actionStates.putAll(ActionStateStore.read(this, actionFileUri));
-            log("状态文件已就绪=" + actionFileUri);
+            actionStates.putAll(ActionStateStore.read(this, actionFile));
+            log("状态文件已就绪=" + actionFile.describe()
+                    + " inDirectory=" + actionFile.inDirectory);
+            if (!actionFile.inDirectory) {
+                Toast.makeText(this,
+                        "目录不可写，状态文件已保存到应用私有目录",
+                        Toast.LENGTH_LONG).show();
+            }
             return true;
         } catch (Throwable e) {
             logError("创建状态文件失败", e);
@@ -708,11 +722,11 @@ public class PlayerActivity extends Activity {
     }
 
     private void saveActionStates() {
-        if (actionFileUri == null) {
+        if (actionFile == null) {
             showTransientError(getString(R.string.action_error, "状态文件不可用"), "");
             return;
         }
-        final Uri uri = actionFileUri;
+        final ActionStateStore.Target target = actionFile;
         final String key = directoryKey;
         final Map<String, String> snapshot = new HashMap<>(actionStates);
         if (actionWriter == null) {
@@ -720,8 +734,8 @@ public class PlayerActivity extends Activity {
         }
         actionWriter.execute(() -> {
             try {
-                ActionStateStore.write(this, uri, key, snapshot);
-                log("状态映射已写入 " + uri + " entries=" + snapshot.size());
+                ActionStateStore.write(this, target, key, snapshot);
+                log("状态映射已写入 " + target.describe() + " entries=" + snapshot.size());
             } catch (Throwable e) {
                 logError("写入状态映射失败", e);
                 runOnUiThread(() -> {

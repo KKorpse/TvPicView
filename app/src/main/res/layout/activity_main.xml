@@ -45,13 +45,13 @@
         android:orientation="horizontal">
 
         <Button
-            android:id="@+id/pickButton"
+            android:id="@+id/playButton"
             style="@style/TvButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:nextFocusDown="@id/logButton"
             android:nextFocusRight="@id/mediaButton"
-            android:text="@string/pick_directory" />
+            android:text="@string/play" />
 
         <Button
             android:id="@+id/mediaButton"
@@ -60,20 +60,9 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:nextFocusDown="@id/logButton"
-            android:nextFocusLeft="@id/pickButton"
-            android:nextFocusRight="@id/playButton"
-            android:text="@string/media_directory" />
-
-        <Button
-            android:id="@+id/playButton"
-            style="@style/TvButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:nextFocusDown="@id/logButton"
-            android:nextFocusLeft="@id/mediaButton"
+            android:nextFocusLeft="@id/playButton"
             android:nextFocusRight="@id/settingsButton"
-            android:text="@string/play" />
+            android:text="@string/media_directory" />
 
         <Button
             android:id="@+id/settingsButton"
@@ -82,7 +71,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:nextFocusDown="@id/logButton"
-            android:nextFocusLeft="@id/playButton"
+            android:nextFocusLeft="@id/mediaButton"
             android:text="@string/settings" />
     </LinearLayout>
 

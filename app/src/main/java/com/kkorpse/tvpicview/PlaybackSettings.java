@@ -21,6 +21,11 @@ public final class PlaybackSettings {
     private static final String KEY_LAST_URI = "last_uri";
     private static final String KEY_LAST_INDEX = "last_index";
     private static final String KEY_LAST_SAVED = "last_saved_at";
+    private static final String KEY_HAS_MEDIA_DIR = "has_media_dir";
+    private static final String KEY_MEDIA_BUCKET_ID = "media_bucket_id";
+    private static final String KEY_MEDIA_BUCKET_NAME = "media_bucket_name";
+    private static final String KEY_MEDIA_VOLUME_NAME = "media_volume_name";
+    private static final String KEY_MEDIA_RELATIVE_PATH = "media_relative_path";
 
     public static final int DEFAULT_IMAGE_DURATION = 5;
     public static final long SAVE_INTERVAL_MS = 10000L;
@@ -58,6 +63,44 @@ public final class PlaybackSettings {
     public static void setResume(Context context, boolean resume) {
         prefs(context).edit().putBoolean(KEY_RESUME, resume).apply();
         Log.i(TAG, "[Settings] 继续上次=" + resume);
+    }
+
+    public static void saveMediaDirectory(Context context, long bucketId, String bucketName,
+                                          String volumeName, String relativePath) {
+        prefs(context).edit()
+                .putBoolean(KEY_HAS_MEDIA_DIR, true)
+                .putLong(KEY_MEDIA_BUCKET_ID, bucketId)
+                .putString(KEY_MEDIA_BUCKET_NAME, bucketName == null ? "" : bucketName)
+                .putString(KEY_MEDIA_VOLUME_NAME, volumeName == null ? "" : volumeName)
+                .putString(KEY_MEDIA_RELATIVE_PATH, relativePath == null ? "" : relativePath)
+                .apply();
+        Log.i(TAG, "[Directory] 保存媒体目录 bucketId=" + bucketId
+                + " name=" + bucketName
+                + " volume=" + volumeName
+                + " relative=" + relativePath);
+    }
+
+    public static boolean hasMediaDirectory(Context context) {
+        return prefs(context).getBoolean(KEY_HAS_MEDIA_DIR, false)
+                && prefs(context).getString(KEY_MEDIA_BUCKET_NAME, "").length() > 0;
+    }
+
+    public static long getMediaBucketId(Context context) {
+        return prefs(context).getLong(KEY_MEDIA_BUCKET_ID, Long.MIN_VALUE);
+    }
+
+    public static String getMediaBucketName(Context context) {
+        return prefs(context).getString(KEY_MEDIA_BUCKET_NAME, "");
+    }
+
+    public static String getMediaVolumeName(Context context) {
+        String value = prefs(context).getString(KEY_MEDIA_VOLUME_NAME, "");
+        return value == null || value.length() == 0 ? null : value;
+    }
+
+    public static String getMediaRelativePath(Context context) {
+        String value = prefs(context).getString(KEY_MEDIA_RELATIVE_PATH, "");
+        return value == null || value.length() == 0 ? null : value;
     }
 
     public static int findResumeIndex(Context context, String directoryKey,
