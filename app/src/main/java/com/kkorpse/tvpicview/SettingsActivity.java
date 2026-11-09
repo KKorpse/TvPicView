@@ -2,11 +2,17 @@ package com.kkorpse.tvpicview;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class SettingsActivity extends Activity {
 
@@ -15,6 +21,9 @@ public class SettingsActivity extends Activity {
     private Button durationButton;
     private Button orderButton;
     private Button resumeButton;
+    private Button filterImagesButton;
+    private Button filterVideosButton;
+    private Button storagePermissionButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +41,9 @@ public class SettingsActivity extends Activity {
         durationButton = findViewById(R.id.durationButton);
         orderButton = findViewById(R.id.orderButton);
         resumeButton = findViewById(R.id.resumeButton);
+        filterImagesButton = findViewById(R.id.filterImagesButton);
+        filterVideosButton = findViewById(R.id.filterVideosButton);
+        storagePermissionButton = findViewById(R.id.storagePermissionButton);
         TextView statePathView = findViewById(R.id.statePathView);
 
         durationButton.setOnClickListener(v -> showDurationDialog());
@@ -43,6 +55,17 @@ public class SettingsActivity extends Activity {
             PlaybackSettings.setResume(this, !PlaybackSettings.isResume(this));
             refreshButtons();
         });
+        filterImagesButton.setOnClickListener(v -> {
+            PlaybackSettings.setFilterImages(this,
+                    !PlaybackSettings.isFilterImages(this));
+            refreshButtons();
+        });
+        filterVideosButton.setOnClickListener(v -> {
+            PlaybackSettings.setFilterVideos(this,
+                    !PlaybackSettings.isFilterVideos(this));
+            refreshButtons();
+        });
+        storagePermissionButton.setOnClickListener(v -> openAllFilesSettings());
 
         statePathView.setText(getString(R.string.settings_state_file,
                 PlaybackSettings.getStateFilePath(this)));
@@ -87,8 +110,61 @@ public class SettingsActivity extends Activity {
         orderButton.setText(PlaybackSettings.isRandom(this)
                 ? R.string.settings_order_random
                 : R.string.settings_order_sequence);
-        resumeButton.setText(PlaybackSettings.isResume(this)
+        boolean resume = PlaybackSettings.isResume(this);
+        resumeButton.setText(resume
                 ? R.string.settings_resume_on
                 : R.string.settings_resume_off);
+        applyToggleStyle(resumeButton, resume);
+
+        boolean filterImages = PlaybackSettings.isFilterImages(this);
+        filterImagesButton.setText(filterImages
+                ? R.string.settings_filter_images_on
+                : R.string.settings_filter_images_off);
+        applyToggleStyle(filterImagesButton, filterImages);
+
+        boolean filterVideos = PlaybackSettings.isFilterVideos(this);
+        filterVideosButton.setText(filterVideos
+                ? R.string.settings_filter_videos_on
+                : R.string.settings_filter_videos_off);
+        applyToggleStyle(filterVideosButton, filterVideos);
+
+        boolean granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && Environment.isExternalStorageManager();
+        storagePermissionButton.setText(granted
+                ? R.string.settings_storage_granted
+                : R.string.settings_storage_grant);
+    }
+
+    private void applyToggleStyle(Button button, boolean enabled) {
+        button.setBackgroundResource(enabled
+                ? R.drawable.btn_toggle_on
+                : R.drawable.btn_toggle_off);
+    }
+
+    private void openAllFilesSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Toast.makeText(this, "当前 Android 版本不支持该权限",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            startActivity(new Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(
+                        Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+            } catch (Exception second) {
+                Toast.makeText(this, "系统没有所有文件访问设置页",
+                        Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshButtons();
     }
 }

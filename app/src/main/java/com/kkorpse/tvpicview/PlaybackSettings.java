@@ -26,6 +26,9 @@ public final class PlaybackSettings {
     private static final String KEY_MEDIA_BUCKET_NAME = "media_bucket_name";
     private static final String KEY_MEDIA_VOLUME_NAME = "media_volume_name";
     private static final String KEY_MEDIA_RELATIVE_PATH = "media_relative_path";
+    private static final String KEY_MEDIA_DIRECTORY_PATH = "media_directory_path";
+    private static final String KEY_FILTER_IMAGES = "filter_images";
+    private static final String KEY_FILTER_VIDEOS = "filter_videos";
 
     public static final int DEFAULT_IMAGE_DURATION = 5;
     public static final long SAVE_INTERVAL_MS = 10000L;
@@ -43,8 +46,8 @@ public final class PlaybackSettings {
     }
 
     public static void setImageDurationSeconds(Context context, int seconds) {
-        prefs(context).edit().putInt(KEY_IMAGE_DURATION, seconds).apply();
-        Log.i(TAG, "[Settings] 图片播放时间=" + seconds + " 秒");
+        boolean ok = prefs(context).edit().putInt(KEY_IMAGE_DURATION, seconds).commit();
+        Log.i(TAG, "[Settings] 图片播放时间=" + seconds + " 秒 saved=" + ok);
     }
 
     public static boolean isRandom(Context context) {
@@ -52,8 +55,9 @@ public final class PlaybackSettings {
     }
 
     public static void setRandom(Context context, boolean random) {
-        prefs(context).edit().putBoolean(KEY_RANDOM, random).apply();
-        Log.i(TAG, "[Settings] 播放顺序=" + (random ? "随机" : "顺序"));
+        boolean ok = prefs(context).edit().putBoolean(KEY_RANDOM, random).commit();
+        Log.i(TAG, "[Settings] 播放顺序=" + (random ? "随机" : "顺序")
+                + " saved=" + ok);
     }
 
     public static boolean isResume(Context context) {
@@ -61,19 +65,39 @@ public final class PlaybackSettings {
     }
 
     public static void setResume(Context context, boolean resume) {
-        prefs(context).edit().putBoolean(KEY_RESUME, resume).apply();
-        Log.i(TAG, "[Settings] 继续上次=" + resume);
+        boolean ok = prefs(context).edit().putBoolean(KEY_RESUME, resume).commit();
+        Log.i(TAG, "[Settings] 继续上次=" + resume + " saved=" + ok);
+    }
+
+    public static boolean isFilterImages(Context context) {
+        return prefs(context).getBoolean(KEY_FILTER_IMAGES, false);
+    }
+
+    public static void setFilterImages(Context context, boolean filter) {
+        boolean ok = prefs(context).edit().putBoolean(KEY_FILTER_IMAGES, filter).commit();
+        Log.i(TAG, "[Settings] 过滤图片=" + filter + " saved=" + ok);
+    }
+
+    public static boolean isFilterVideos(Context context) {
+        return prefs(context).getBoolean(KEY_FILTER_VIDEOS, false);
+    }
+
+    public static void setFilterVideos(Context context, boolean filter) {
+        boolean ok = prefs(context).edit().putBoolean(KEY_FILTER_VIDEOS, filter).commit();
+        Log.i(TAG, "[Settings] 过滤视频=" + filter + " saved=" + ok);
     }
 
     public static void saveMediaDirectory(Context context, long bucketId, String bucketName,
-                                          String volumeName, String relativePath) {
+                                          String volumeName, String relativePath,
+                                          String directoryPath) {
         prefs(context).edit()
                 .putBoolean(KEY_HAS_MEDIA_DIR, true)
                 .putLong(KEY_MEDIA_BUCKET_ID, bucketId)
                 .putString(KEY_MEDIA_BUCKET_NAME, bucketName == null ? "" : bucketName)
                 .putString(KEY_MEDIA_VOLUME_NAME, volumeName == null ? "" : volumeName)
                 .putString(KEY_MEDIA_RELATIVE_PATH, relativePath == null ? "" : relativePath)
-                .apply();
+                .putString(KEY_MEDIA_DIRECTORY_PATH, directoryPath == null ? "" : directoryPath)
+                .commit();
         Log.i(TAG, "[Directory] 保存媒体目录 bucketId=" + bucketId
                 + " name=" + bucketName
                 + " volume=" + volumeName
@@ -100,6 +124,11 @@ public final class PlaybackSettings {
 
     public static String getMediaRelativePath(Context context) {
         String value = prefs(context).getString(KEY_MEDIA_RELATIVE_PATH, "");
+        return value == null || value.length() == 0 ? null : value;
+    }
+
+    public static String getMediaDirectoryPath(Context context) {
+        String value = prefs(context).getString(KEY_MEDIA_DIRECTORY_PATH, "");
         return value == null || value.length() == 0 ? null : value;
     }
 

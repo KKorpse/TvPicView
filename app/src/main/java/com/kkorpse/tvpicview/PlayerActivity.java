@@ -33,12 +33,11 @@ import androidx.media3.ui.PlayerView;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -82,7 +81,8 @@ public class PlayerActivity extends Activity {
     private int imageHeight;
     private int loadToken;
 
-    private final Set<Integer> played = new HashSet<>();
+    private final List<Integer> playOrder = new ArrayList<>();
+    private int orderPosition = -1;
     private final Random random = new Random();
     private boolean playbackFinished;
     private boolean videoPaused;
@@ -112,11 +112,7 @@ public class PlayerActivity extends Activity {
     };
     private final Runnable errorAdvanceRunnable = () -> {
         if (!playbackFinished) {
-            if (played.size() >= playlist.size()) {
-                finishPlaylist();
-            } else {
-                advanceToNext();
-            }
+            advanceToNext();
         }
     };
     private final Runnable saveStateRunnable = new Runnable() {
@@ -159,14 +155,13 @@ public class PlayerActivity extends Activity {
                 + " actionStates=" + actionStates.size());
         logDisplayModes();
 
-        skipDeletedStart();
-        if (playlist.isEmpty() || currentIndex < 0) {
+        buildPlayOrder();
+        if (playlist.isEmpty() || currentIndex < 0 || playOrder.isEmpty()) {
             showError(getString(R.string.player_no_uri),
                     getString(R.string.action_no_playable));
             return;
         }
 
-        played.add(currentIndex);
         startCurrent();
     }
 
@@ -176,7 +171,8 @@ public class PlayerActivity extends Activity {
                     directoryKey,
                     PlaybackQueue.getTreeUri(),
                     PlaybackQueue.getVolumeName(),
-                    PlaybackQueue.getRelativePath());
+                    PlaybackQueue.getRelativePath(),
+                    PlaybackQueue.getDirectoryPath());
             actionStates.putAll(ActionStateStore.read(this, actionFile));
             log("状态文件=" + actionFile.describe()
                     + " inDirectory=" + actionFile.inDirectory
@@ -203,7 +199,8 @@ public class PlayerActivity extends Activity {
                     directoryKey,
                     PlaybackQueue.getTreeUri(),
                     PlaybackQueue.getVolumeName(),
-                    PlaybackQueue.getRelativePath());
+                    PlaybackQueue.getRelativePath(),
+                    PlaybackQueue.getDirectoryPath());
             actionStates.putAll(ActionStateStore.read(this, actionFile));
             log("状态文件已就绪=" + actionFile.describe()
                     + " inDirectory=" + actionFile.inDirectory);
@@ -221,17 +218,53 @@ public class PlayerActivity extends Activity {
         }
     }
 
-    private void skipDeletedStart() {
-        if (playlist.isEmpty() || currentIndex < 0) {
+    private void buildPlayOrder() {
+        playOrder.clear();
+        List<Integer> available = new ArrayList<>();
+        for (int i = 0; i < playlist.size(); i++) {
+            if (!isDeleted(playlist.get(i))) {
+                available.add(i);
+            }
+        }
+        if (available.isEmpty()) {
+            currentIndex = -1;
             return;
         }
-        for (int i = 0; i < playlist.size(); i++) {
-            if (!isDeleted(playlist.get(currentIndex))) {
-                return;
+
+        int start = currentIndex;
+        if (!available.contains(start)) {
+            start = available.get(0);
+            for (int index : available) {
+                if (index >= currentIndex) {
+                    start = index;
+                    break;
+                }
             }
-            currentIndex = (currentIndex + 1) % playlist.size();
         }
-        currentIndex = -1;
+
+        if (randomMode) {
+            List<Integer> rest = new ArrayList<>(available);
+            rest.remove(Integer.valueOf(start));
+            Collections.shuffle(rest, random);
+            playOrder.add(start);
+            playOrder.addAll(rest);
+        } else {
+            int position = available.indexOf(start);
+            for (int i = 0; i < available.size(); i++) {
+                playOrder.add(available.get((position + i) % available.size()));
+            }
+        }
+
+        orderPosition = 0;
+        currentIndex = playOrder.get(0);
+        StringBuilder order = new StringBuilder();
+        for (int index : playOrder) {
+            if (order.length() > 0) {
+                order.append(" -> ");
+            }
+            order.append(playlist.get(index).name);
+        }
+        log("播放顺序 random=" + randomMode + ": " + order);
     }
 
     private void setupPlaylist() {
@@ -354,54 +387,37 @@ public class PlayerActivity extends Activity {
         handler.removeCallbacks(imageAdvanceRunnable);
         handler.removeCallbacks(errorAdvanceRunnable);
 
-        if (!hasUnplayedPlayable()) {
+        int nextPosition = orderPosition + 1;
+        while (nextPosition < playOrder.size()
+                && isDeleted(playlist.get(playOrder.get(nextPosition)))) {
+            nextPosition++;
+        }
+        if (nextPosition >= playOrder.size()) {
             finishPlaylist();
             return;
         }
 
-        int next;
-        if (randomMode) {
-            do {
-                next = random.nextInt(playlist.size());
-            } while (played.contains(next) || isDeleted(playlist.get(next)));
-        } else {
-            next = currentIndex;
-            do {
-                next = (next + 1) % playlist.size();
-            } while (played.contains(next) || isDeleted(playlist.get(next)));
-        }
-
-        played.add(next);
-        currentIndex = next;
+        orderPosition = nextPosition;
+        currentIndex = playOrder.get(nextPosition);
         startCurrent();
     }
 
-    private boolean hasUnplayedPlayable() {
-        for (int i = 0; i < playlist.size(); i++) {
-            if (!played.contains(i) && !isDeleted(playlist.get(i))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void switchItem(int direction) {
-        if (playlist.size() <= 1) {
+        if (playOrder.size() <= 1) {
             return;
         }
-        if (playbackFinished) {
-            played.clear();
-            playbackFinished = false;
-        }
-
-        int next = currentIndex;
-        for (int i = 0; i < playlist.size(); i++) {
-            next = (next + direction + playlist.size()) % playlist.size();
-            if (!isDeleted(playlist.get(next))) {
-                played.add(next);
-                currentIndex = next;
+        int nextPosition = orderPosition;
+        for (int i = 0; i < playOrder.size(); i++) {
+            nextPosition = (nextPosition + direction + playOrder.size())
+                    % playOrder.size();
+            int nextIndex = playOrder.get(nextPosition);
+            if (!isDeleted(playlist.get(nextIndex))) {
+                playbackFinished = false;
+                orderPosition = nextPosition;
+                currentIndex = nextIndex;
                 log("左右切换 direction=" + direction
-                        + " name=" + playlist.get(next).name);
+                        + " orderPosition=" + nextPosition
+                        + " name=" + playlist.get(nextIndex).name);
                 startCurrent();
                 return;
             }

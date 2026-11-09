@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0B1016</color>
-    <color name="panel">#111A24</color>
-    <color name="panel_border">#26384A</color>
-    <color name="accent">#4DA3FF</color>
-    <color name="accent_focus">#5CB4FF</color>
-    <color name="text_primary">#F2F6FA</color>
-    <color name="text_secondary">#9FB0C0</color>
-    <color name="divider">#22303C</color>
-    <color name="button_normal">#1B2836</color>
-    <color name="button_border">#3B5268</color>
-    <color name="list_focus">#234A6E</color>
-    <color name="text_on_accent">#06101A</color>
-    <color name="error">#FF8A80</color>
+    <color name="bg">#05070B</color>
+    <color name="panel">#1C1C1E</color>
+    <color name="panel_border">#33FFFFFF</color>
+    <color name="accent">#0A84FF</color>
+    <color name="accent_focus">#409CFF</color>
+    <color name="text_primary">#F5F5F7</color>
+    <color name="text_secondary">#8E8E93</color>
+    <color name="divider">#2C2C2E</color>
+    <color name="button_normal">#2C2C2E</color>
+    <color name="button_border">#3A3A3C</color>
+    <color name="list_focus">#330A84FF</color>
+    <color name="text_on_accent">#FFFFFF</color>
+    <color name="error">#FF6B6B</color>
+    <color name="ios_green">#34C759</color>
 </resources>

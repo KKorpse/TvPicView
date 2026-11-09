@@ -64,8 +64,17 @@
     <string name="settings_resume_desc">点“播放”时从上次文件继续</string>
     <string name="settings_resume_on">继续上次：开</string>
     <string name="settings_resume_off">继续上次：关</string>
+    <string name="settings_filter">媒体过滤</string>
+    <string name="settings_filter_images">过滤图片</string>
+    <string name="settings_filter_videos">过滤视频</string>
+    <string name="settings_filter_images_on">过滤图片：开</string>
+    <string name="settings_filter_images_off">过滤图片：关</string>
+    <string name="settings_filter_videos_on">过滤视频：开</string>
+    <string name="settings_filter_videos_off">过滤视频：关</string>
     <string name="settings_manual_hint">播放会自动连续播放整个目录；手动文件选择已关闭。</string>
     <string name="settings_state_file">状态文件：%1$s</string>
+    <string name="settings_storage_granted">目录写入权限：已授权</string>
+    <string name="settings_storage_grant">目录写入权限：去授权</string>
     <string name="settings_back_hint">按返回键退出设置</string>
     <string name="diagnostics">诊断日志</string>
     <string name="media_counts">视频 %1$d 个 · 图片 %2$d 个</string>

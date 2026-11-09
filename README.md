@@ -4,6 +4,7 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 
 ## 功能
 
+- iOS 风格深色界面：大标题、磨砂圆角卡片、蓝色主按钮、绿色开关
 - 首页只保留 **播放 / 选择媒体库目录 / 设置**，播放按钮在第一个
 - 自动恢复上次选择的媒体库目录，下次进入可直接点播放
 - 点播放先扫描目录，再弹确认窗显示视频数、图片数
@@ -11,7 +12,8 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 - 图片按设定时间切换；视频播放完自动下一个
 - 图片、视频都支持暂停
 - 上键收藏、下键标记删除，标记写入目录内的状态文件
-- 左右键切换媒体；视频暂停后左右键快退/快进 10 秒
+- 左右键切换媒体；随机模式下按保存的随机顺序切换
+- 视频暂停后左右键快退/快进 10 秒
 - 全屏播放，隐藏系统栏，保持屏幕常亮
 
 ## 使用流程
@@ -31,6 +33,9 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 - **图片播放时间**：3 / 5 / 10 / 15 / 30 / 60 秒，默认 5 秒
 - **播放顺序**：顺序播放 / 随机播放
 - **继续上次播放**：开 / 关，默认开
+- **媒体过滤**：可单独过滤图片或视频；过滤视频后只播放图片，过滤图片后只播放视频
+
+设置使用 SharedPreferences 同步写入，电视重启不会归零；卸载应用才会清除。
 
 “继续上次”影响确认后的播放起点：会从该目录上次保存的文件开始，然后把目录内剩余文件都播放一遍；随机模式下按随机顺序播放所有文件。
 
@@ -118,14 +123,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.4-debug.apk
+dist/TvPicView-v1.5-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.4-debug.apk
+adb install -r dist/TvPicView-v1.5-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -146,7 +151,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.4-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.5-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改。

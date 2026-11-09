@@ -47,6 +47,7 @@ public final class PlaybackQueue {
     private static String treeUri = "";
     private static String volumeName = "";
     private static String relativePath = "";
+    private static String directoryPath = "";
     private static int startIndex;
 
     private PlaybackQueue() {
@@ -58,10 +59,12 @@ public final class PlaybackQueue {
         startIndex = index;
     }
 
-    public static void setDirectoryContext(String tree, String volume, String relative) {
+    public static void setDirectoryContext(String tree, String volume,
+                                           String relative, String directory) {
         treeUri = tree == null ? "" : tree;
         volumeName = volume == null ? "" : volume;
         relativePath = relative == null ? "" : relative;
+        directoryPath = directory == null ? "" : directory;
     }
 
     public static List<Item> getItems() {
@@ -84,6 +87,10 @@ public final class PlaybackQueue {
         return relativePath;
     }
 
+    public static String getDirectoryPath() {
+        return directoryPath;
+    }
+
     public static int getStartIndex() {
         return startIndex;
     }
@@ -94,6 +101,7 @@ public final class PlaybackQueue {
         treeUri = "";
         volumeName = "";
         relativePath = "";
+        directoryPath = "";
         startIndex = 0;
     }
 }

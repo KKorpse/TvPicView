@@ -7,6 +7,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import android.provider.MediaStore;
@@ -63,7 +64,12 @@ public final class ActionStateStore {
 
     public static Target findOrCreate(Context context, String directoryKey,
                                       String treeUri, String volumeName,
-                                      String relativePath) throws Exception {
+                                      String relativePath, String directoryPath) throws Exception {
+        Target direct = tryDirectDirectory(directoryPath);
+        if (direct != null) {
+            return direct;
+        }
+
         try {
             Uri uri;
             if (treeUri != null && treeUri.length() > 0) {
@@ -77,6 +83,32 @@ public final class ActionStateStore {
         } catch (Throwable e) {
             Log.w(TAG, "[StateFile] 目录内状态文件不可用，降级到应用私有目录", e);
             return createPrivateTarget(context, directoryKey);
+        }
+    }
+
+    private static Target tryDirectDirectory(String directoryPath) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R
+                || !Environment.isExternalStorageManager()
+                || directoryPath == null || directoryPath.length() == 0) {
+            return null;
+        }
+        File dir = new File(directoryPath);
+        if (!dir.isDirectory()) {
+            return null;
+        }
+        File file = new File(dir, FILE_NAME);
+        try {
+            if (!file.exists()) {
+                try (FileOutputStream output = new FileOutputStream(file)) {
+                    output.write("{\"version\":1,\"items\":{}}"
+                            .getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            Log.i(TAG, "[StateFile] 使用目录状态文件（所有文件访问）: " + file);
+            return new Target(null, file, true);
+        } catch (Exception e) {
+            Log.w(TAG, "[StateFile] 目录直接写入失败: " + file, e);
+            return null;
         }
     }
 

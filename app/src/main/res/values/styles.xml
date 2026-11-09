@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:windowBackground">@drawable/bg_main</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowNoTitle">true</item>
@@ -15,17 +15,38 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
-    <style name="TvButton" parent="@android:style/Widget.Material.Button">
-        <item name="android:background">@drawable/btn_bg</item>
+    <style name="TvButtonBase" parent="@android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/btn_secondary</item>
         <item name="android:backgroundTint">@null</item>
-        <item name="android:textColor">@color/btn_text</item>
+        <item name="android:textColor">@color/text_primary</item>
         <item name="android:textSize">18sp</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:minWidth">170dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:minWidth">160dp</item>
         <item name="android:minHeight">56dp</item>
-        <item name="android:paddingLeft">20dp</item>
-        <item name="android:paddingRight">20dp</item>
-        <item name="android:stateListAnimator">@null</item>
+        <item name="android:paddingLeft">22dp</item>
+        <item name="android:paddingRight">22dp</item>
+        <item name="android:stateListAnimator">@animator/tv_focus_scale</item>
         <item name="android:focusable">true</item>
+    </style>
+
+    <style name="TvButton" parent="TvButtonBase" />
+
+    <style name="TvButtonPrimary" parent="TvButtonBase">
+        <item name="android:background">@drawable/btn_primary</item>
+        <item name="android:textColor">@android:color/white</item>
+    </style>
+
+    <style name="TvButtonSecondary" parent="TvButtonBase" />
+
+    <style name="TvButtonGhost" parent="TvButtonBase">
+        <item name="android:background">@drawable/btn_ghost</item>
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:minWidth">140dp</item>
+    </style>
+
+    <style name="TvToggleButton" parent="TvButtonBase">
+        <item name="android:minWidth">150dp</item>
     </style>
 </resources>

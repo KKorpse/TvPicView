@@ -26,6 +26,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -51,7 +52,8 @@ public class MainActivity extends Activity {
 
     private TextView pathView;
     private TextView statusView;
-    private TextView countView;
+    private TextView videoCountView;
+    private TextView imageCountView;
     private TextView logButton;
     private Button playButton;
     private Button mediaButton;
@@ -62,6 +64,7 @@ public class MainActivity extends Activity {
     private String mediaBucketName;
     private String mediaStoreVolumeName;
     private String mediaStoreRelativePath;
+    private String mediaStoreDirectoryPath;
     private boolean playAfterDirectorySelection;
     private boolean scanning;
     private List<PlaybackQueue.Item> pendingPlayItems;
@@ -84,7 +87,8 @@ public class MainActivity extends Activity {
 
         pathView = findViewById(R.id.pathView);
         statusView = findViewById(R.id.statusView);
-        countView = findViewById(R.id.countView);
+        videoCountView = findViewById(R.id.videoCountView);
+        imageCountView = findViewById(R.id.imageCountView);
         logButton = findViewById(R.id.logButton);
         playButton = findViewById(R.id.playButton);
         mediaButton = findViewById(R.id.mediaButton);
@@ -130,6 +134,11 @@ public class MainActivity extends Activity {
                 + ", touchscreen=" + pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN));
         log("Storage", "externalState=" + Environment.getExternalStorageState());
         log("Permission", mediaPermissionSummary());
+        log("Settings", "duration=" + PlaybackSettings.getImageDurationSeconds(this)
+                + "s random=" + PlaybackSettings.isRandom(this)
+                + " resume=" + PlaybackSettings.isResume(this)
+                + " filterImages=" + PlaybackSettings.isFilterImages(this)
+                + " filterVideos=" + PlaybackSettings.isFilterVideos(this));
     }
 
     private void log(String stage, String message) {
@@ -254,8 +263,10 @@ public class MainActivity extends Activity {
             mediaBucketName = null;
             mediaStoreVolumeName = null;
             mediaStoreRelativePath = null;
+            mediaStoreDirectoryPath = null;
             pathView.setText(R.string.no_directory);
-            countView.setText(R.string.not_scanned);
+            pathView.setTextColor(getColor(R.color.text_secondary));
+            setCounts(0, 0);
             setStatus(getString(R.string.select_hint), false);
             log("Directory", "没有上次目录");
             return;
@@ -266,14 +277,17 @@ public class MainActivity extends Activity {
         mediaBucketName = PlaybackSettings.getMediaBucketName(this);
         mediaStoreVolumeName = PlaybackSettings.getMediaVolumeName(this);
         mediaStoreRelativePath = PlaybackSettings.getMediaRelativePath(this);
+        mediaStoreDirectoryPath = PlaybackSettings.getMediaDirectoryPath(this);
         pathView.setText(getString(R.string.media_selected_path,
                 mediaBucketName == null ? "媒体库" : mediaBucketName));
-        countView.setText(R.string.not_scanned);
+        pathView.setTextColor(getColor(R.color.text_primary));
+        setCounts(0, 0);
         setStatus(getString(R.string.restored_directory), false);
         log("Directory", "恢复上次目录 bucketId=" + mediaBucketId
                 + " name=" + mediaBucketName
                 + " volume=" + mediaStoreVolumeName
-                + " relative=" + mediaStoreRelativePath);
+                + " relative=" + mediaStoreRelativePath
+                + " path=" + mediaStoreDirectoryPath);
     }
 
     private void chooseMediaLibrary() {
@@ -308,25 +322,37 @@ public class MainActivity extends Activity {
         }
         setScanning(true);
         pendingPlayItems = null;
-        countView.setText(R.string.not_scanned);
-        log("MediaStore", "开始扫描媒体库目录: " + bucketName + " bucketId=" + bucketId);
+        setCounts(0, 0);
+        boolean filterImages = PlaybackSettings.isFilterImages(this);
+        boolean filterVideos = PlaybackSettings.isFilterVideos(this);
+        log("MediaStore", "开始扫描媒体库目录: " + bucketName + " bucketId=" + bucketId
+                + " filterImages=" + filterImages
+                + " filterVideos=" + filterVideos);
 
         new Thread(() -> {
             List<PlaybackQueue.Item> found = new ArrayList<>();
             int[] counts = new int[]{0, 0};
             List<String> errors = new ArrayList<>();
 
-            try {
-                collectBucketMedia(videoCollection(), true, bucketId, found, counts);
-            } catch (Exception e) {
-                addError(errors, "视频 -> " + errorSummary(e));
-                logError("MediaStore", "读取视频媒体库失败", e);
+            if (!filterVideos) {
+                try {
+                    collectBucketMedia(videoCollection(), true, bucketId, found, counts);
+                } catch (Exception e) {
+                    addError(errors, "视频 -> " + errorSummary(e));
+                    logError("MediaStore", "读取视频媒体库失败", e);
+                }
+            } else {
+                log("Filter", "已开启过滤视频，跳过视频扫描");
             }
-            try {
-                collectBucketMedia(imageCollection(), false, bucketId, found, counts);
-            } catch (Exception e) {
-                addError(errors, "图片 -> " + errorSummary(e));
-                logError("MediaStore", "读取图片媒体库失败", e);
+            if (!filterImages) {
+                try {
+                    collectBucketMedia(imageCollection(), false, bucketId, found, counts);
+                } catch (Exception e) {
+                    addError(errors, "图片 -> " + errorSummary(e));
+                    logError("MediaStore", "读取图片媒体库失败", e);
+                }
+            } else {
+                log("Filter", "已开启过滤图片，跳过图片扫描");
             }
 
             Collections.sort(found);
@@ -346,12 +372,14 @@ public class MainActivity extends Activity {
                 MediaStore.MediaColumns.DISPLAY_NAME,
                 MediaStore.MediaColumns.MIME_TYPE,
                 MediaStore.MediaColumns.VOLUME_NAME,
-                MediaStore.MediaColumns.RELATIVE_PATH
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                MediaStore.MediaColumns.DATA
         }
                 : new String[]{
                 BaseColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
-                MediaStore.MediaColumns.MIME_TYPE
+                MediaStore.MediaColumns.MIME_TYPE,
+                MediaStore.MediaColumns.DATA
         };
         String selection = COL_BUCKET_ID + "=?";
         String[] args = new String[]{String.valueOf(bucketId)};
@@ -372,11 +400,15 @@ public class MainActivity extends Activity {
                 String mime = cursor.getString(2);
                 String volume = hasPathColumns ? cursor.getString(3) : null;
                 String relative = hasPathColumns ? cursor.getString(4) : null;
+                String dataPath = cursor.getString(hasPathColumns ? 5 : 3);
                 if (mediaStoreVolumeName == null && volume != null) {
                     mediaStoreVolumeName = volume;
                 }
                 if (mediaStoreRelativePath == null && relative != null) {
                     mediaStoreRelativePath = relative;
+                }
+                if (mediaStoreDirectoryPath == null && dataPath != null) {
+                    mediaStoreDirectoryPath = new File(dataPath).getParent();
                 }
                 if (name != null && !name.startsWith(ActionStateStore.FILE_NAME)) {
                     Uri uri = ContentUris.withAppendedId(collection, id);
@@ -386,7 +418,8 @@ public class MainActivity extends Activity {
                     count++;
                     log("MediaStore", "文件: " + (video ? "[视频] " : "[图片] ")
                             + name + " uri=" + uri
-                            + " volume=" + volume + " relative=" + relative);
+                            + " volume=" + volume + " relative=" + relative
+                            + " data=" + dataPath);
                 }
             }
         } finally {
@@ -404,9 +437,9 @@ public class MainActivity extends Activity {
             return;
         }
         setScanning(false);
-        countView.setText(getString(R.string.media_counts, counts[0], counts[1]));
+        setCounts(counts[0], counts[1]);
         PlaybackSettings.saveMediaDirectory(this, mediaBucketId, mediaBucketName,
-                mediaStoreVolumeName, mediaStoreRelativePath);
+                mediaStoreVolumeName, mediaStoreRelativePath, mediaStoreDirectoryPath);
 
         if (error != null && found.isEmpty()) {
             log("Result", "扫描失败: " + error);
@@ -455,40 +488,43 @@ public class MainActivity extends Activity {
         pendingPlayItems = found.isEmpty() ? null : new ArrayList<>(found);
         final boolean canPlay = !found.isEmpty();
 
+        View content = getLayoutInflater().inflate(R.layout.dialog_play_confirm, null);
+        TextView messageView = content.findViewById(R.id.confirmMessage);
+        Button backButton = content.findViewById(R.id.confirmBackButton);
+        Button okButton = content.findViewById(R.id.confirmOkButton);
+        messageView.setText(message);
+        okButton.setEnabled(canPlay);
+
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.play_confirm_title)
-                .setMessage(message)
-                .setPositiveButton(R.string.confirm, (d, which) -> {
-                    List<PlaybackQueue.Item> items = pendingPlayItems;
-                    pendingPlayItems = null;
-                    if (items != null && !items.isEmpty()) {
-                        startConfirmedPlayback(items);
-                    }
-                })
-                .setNegativeButton(R.string.back, (d, which) -> {
-                    pendingPlayItems = null;
-                    setStatus(getString(R.string.scan_cancelled), false);
-                    playButton.requestFocus();
-                })
-                .setOnDismissListener(d -> {
-                    if (pendingPlayItems != null) {
-                        pendingPlayItems = null;
-                        setStatus(getString(R.string.scan_cancelled), false);
-                        playButton.requestFocus();
-                    }
-                })
+                .setView(content)
                 .create();
 
+        okButton.setOnClickListener(v -> {
+            List<PlaybackQueue.Item> items = pendingPlayItems;
+            pendingPlayItems = null;
+            dialog.dismiss();
+            if (items != null && !items.isEmpty()) {
+                startConfirmedPlayback(items);
+            }
+        });
+        backButton.setOnClickListener(v -> {
+            pendingPlayItems = null;
+            setStatus(getString(R.string.scan_cancelled), false);
+            dialog.dismiss();
+            playButton.requestFocus();
+        });
+        dialog.setOnDismissListener(d -> {
+            if (pendingPlayItems != null) {
+                pendingPlayItems = null;
+                setStatus(getString(R.string.scan_cancelled), false);
+                playButton.requestFocus();
+            }
+        });
         dialog.setOnShowListener(d -> {
-            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            Button back = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-            if (ok != null) {
-                ok.setEnabled(canPlay);
-                if (canPlay) {
-                    ok.requestFocus();
-                } else if (back != null) {
-                    back.requestFocus();
-                }
+            if (canPlay) {
+                okButton.postDelayed(okButton::requestFocus, 80);
+            } else {
+                backButton.postDelayed(backButton::requestFocus, 80);
             }
         });
         dialog.setCanceledOnTouchOutside(false);
@@ -516,7 +552,8 @@ public class MainActivity extends Activity {
         }
 
         PlaybackQueue.setDirectoryContext(
-                null, mediaStoreVolumeName, mediaStoreRelativePath);
+                null, mediaStoreVolumeName, mediaStoreRelativePath,
+                mediaStoreDirectoryPath);
         PlaybackQueue.set(items, currentDirectoryKey(), startIndex);
 
         PlaybackQueue.Item item = items.get(startIndex);
@@ -632,9 +669,11 @@ public class MainActivity extends Activity {
                             mediaBucketName = entry.getValue();
                             mediaStoreVolumeName = null;
                             mediaStoreRelativePath = null;
+                            mediaStoreDirectoryPath = null;
                             pathView.setText(getString(
                                     R.string.media_selected_path, mediaBucketName));
-                            countView.setText(R.string.not_scanned);
+                            pathView.setTextColor(getColor(R.color.text_primary));
+                            setCounts(0, 0);
                             setStatus(getString(R.string.ready_to_scan), false);
                             playButton.setEnabled(true);
                             playButton.requestFocus();
@@ -643,7 +682,8 @@ public class MainActivity extends Activity {
                                     mediaBucketId,
                                     mediaBucketName,
                                     mediaStoreVolumeName,
-                                    mediaStoreRelativePath);
+                                    mediaStoreRelativePath,
+                                    mediaStoreDirectoryPath);
                             log("Picker", "已选择媒体目录: " + mediaBucketName
                                     + " bucketId=" + mediaBucketId
                                     + " volume=" + mediaStoreVolumeName
@@ -835,6 +875,11 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------
     // 通用
     // ------------------------------------------------------------
+
+    private void setCounts(int videos, int images) {
+        videoCountView.setText(String.valueOf(videos));
+        imageCountView.setText(String.valueOf(images));
+    }
 
     private void setScanning(boolean value) {
         scanning = value;
