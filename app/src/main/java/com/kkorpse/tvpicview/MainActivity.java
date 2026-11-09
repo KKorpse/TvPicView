@@ -510,7 +510,11 @@ public class MainActivity extends Activity {
         }
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             log("Picker", "用户取消系统选择器");
-            setStatus(getString(R.string.pick_cancelled), false);
+            if (treeUri != null || usingMediaBucket) {
+                setStatus(getString(R.string.ready_to_scan), false);
+            } else {
+                setStatus(getString(R.string.pick_cancelled), false);
+            }
             return;
         }
 
