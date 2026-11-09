@@ -5,7 +5,7 @@ Android TV / Google TV 全屏图片、视频自动播放器。
 ## 功能
 
 - iOS 风格深色界面：大标题、磨砂圆角卡片、蓝色主按钮、绿色开关
-- 首页顶部是目录和 **选择媒体目录**，下面一行是 **设置 / 播放 / 刷新**，播放按钮居中放大
+- 首页最上方是整行 **选择媒体目录**，下面整行是 **设置 / 播放 / 刷新**；播放按钮居中放大，目录地址显示在统计卡片左下角
 - 进入应用默认焦点在播放按钮
 - 自动恢复上次选择的媒体库目录，下次进入可直接点播放
 - 点播放直接扫描并开始播放，不再弹确认窗
@@ -130,14 +130,14 @@ adb logcat -s TvPicView
 ## 安装包
 
 ```text
-dist/TvPicView-v1.8-debug.apk
+dist/TvPicView-v1.9-debug.apk
 ```
 
 安装：
 
 ```bash
 adb connect <电视IP>:5555
-adb install -r dist/TvPicView-v1.8-debug.apk
+adb install -r dist/TvPicView-v1.9-debug.apk
 adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 ```
 
@@ -156,7 +156,7 @@ adb shell am start -n com.kkorpse.tvpicview/.MainActivity
 - `INSTALL_FAILED_INSUFFICIENT_STORAGE`：电视存储空间不足，清理后重试。
 - `INSTALL_FAILED_USER_RESTRICTED`：电视限制了 ADB 安装，需要在开发者选项和“未知来源”里允许。
 
-当前 1.7 和 1.8 的 APK 使用同一签名，正常情况下 `adb install -r` 可以直接升级。只有电视上的旧版本来自另一台电脑或另一套签名时，才需要最后一次卸载。
+当前 1.7、1.8 和 1.9 的 APK 使用同一签名，正常情况下 `adb install -r` 可以直接升级。只有电视上的旧版本来自另一台电脑或另一套签名时，才需要最后一次卸载。
 
 > TCL 电视有 Google TV / Android TV 和 Roku TV 两种系统。Roku 不能安装 Android APK。国内 TCL/雷鸟通常没有 Google Play，但可直接侧载，应用不依赖 GMS。
 
@@ -175,7 +175,7 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 APK 输出自动带版本号，例如：
 
 ```text
-app/build/outputs/apk/debug/TvPicView-v1.8-debug.apk
+app/build/outputs/apk/debug/TvPicView-v1.9-debug.apk
 ```
 
 版本号在 `app/build.gradle` 的 `versionCode` / `versionName` 修改。

@@ -20,7 +20,6 @@ import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -56,10 +55,10 @@ public class MainActivity extends Activity {
     private TextView videoCountView;
     private TextView imageCountView;
     private TextView logButton;
-    private Button playButton;
-    private Button mediaButton;
-    private Button settingsButton;
-    private Button refreshButton;
+    private View playButton;
+    private View mediaButton;
+    private View settingsButton;
+    private View refreshButton;
 
     private boolean usingMediaBucket;
     private long mediaBucketId = Long.MIN_VALUE;
@@ -232,6 +231,10 @@ public class MainActivity extends Activity {
         statusView.setTextColor(getColor(error ? R.color.error : R.color.text_secondary));
     }
 
+    private void clearStatus() {
+        setStatus("", false);
+    }
+
     private String oneLine(String value) {
         return value == null ? "" : value.replace('\n', ' ').replace('\r', ' ');
     }
@@ -264,10 +267,9 @@ public class MainActivity extends Activity {
             mediaStoreVolumeName = null;
             mediaStoreRelativePath = null;
             mediaStoreDirectoryPath = null;
-            pathView.setText(R.string.no_directory);
-            pathView.setTextColor(getColor(R.color.text_secondary));
+            updateDirectoryView();
             setCounts(0, 0);
-            setStatus(getString(R.string.select_hint), false);
+            clearStatus();
             log("Directory", "没有上次目录");
             return;
         }
@@ -278,16 +280,38 @@ public class MainActivity extends Activity {
         mediaStoreVolumeName = PlaybackSettings.getMediaVolumeName(this);
         mediaStoreRelativePath = PlaybackSettings.getMediaRelativePath(this);
         mediaStoreDirectoryPath = PlaybackSettings.getMediaDirectoryPath(this);
-        pathView.setText(getString(R.string.media_selected_path,
-                mediaBucketName == null ? "媒体库" : mediaBucketName));
-        pathView.setTextColor(getColor(R.color.text_primary));
+        updateDirectoryView();
         setCounts(0, 0);
-        setStatus(getString(R.string.restored_directory), false);
+        clearStatus();
         log("Directory", "恢复上次目录 bucketId=" + mediaBucketId
                 + " name=" + mediaBucketName
                 + " volume=" + mediaStoreVolumeName
                 + " relative=" + mediaStoreRelativePath
                 + " path=" + mediaStoreDirectoryPath);
+    }
+
+    private void updateDirectoryView() {
+        if (pathView == null) {
+            return;
+        }
+        if (!usingMediaBucket) {
+            pathView.setText(R.string.no_directory);
+            pathView.setTextColor(getColor(R.color.text_secondary));
+            return;
+        }
+
+        String address = mediaStoreDirectoryPath;
+        if ((address == null || address.length() == 0)
+                && mediaStoreVolumeName != null && mediaStoreRelativePath != null) {
+            address = "/storage/" + mediaStoreVolumeName + "/" + mediaStoreRelativePath;
+        }
+        if (address != null && address.length() > 0) {
+            pathView.setText(getString(R.string.directory_address, address));
+        } else {
+            pathView.setText(getString(R.string.media_selected_path,
+                    mediaBucketName == null ? "媒体库" : mediaBucketName));
+        }
+        pathView.setTextColor(getColor(R.color.text_primary));
     }
 
     private void chooseMediaLibrary() {
@@ -494,6 +518,7 @@ public class MainActivity extends Activity {
         }
         setScanning(false);
         setCounts(counts[0], counts[1]);
+        updateDirectoryView();
         PlaybackSettings.saveMediaDirectory(this, mediaBucketId, mediaBucketName,
                 mediaStoreVolumeName, mediaStoreRelativePath, mediaStoreDirectoryPath);
 
@@ -667,11 +692,9 @@ public class MainActivity extends Activity {
                             mediaStoreVolumeName = null;
                             mediaStoreRelativePath = null;
                             mediaStoreDirectoryPath = null;
-                            pathView.setText(getString(
-                                    R.string.media_selected_path, mediaBucketName));
-                            pathView.setTextColor(getColor(R.color.text_primary));
+                            updateDirectoryView();
                             setCounts(0, 0);
-                            setStatus(getString(R.string.ready_to_scan), false);
+                            clearStatus();
                             focusPlayAfterPicker = true;
                             playButton.setEnabled(true);
                             playButton.requestFocus();
@@ -746,11 +769,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshSelectionStatus() {
-        if (usingMediaBucket) {
-            setStatus(getString(R.string.ready_to_scan), false);
-        } else {
-            setStatus(getString(R.string.select_hint), false);
-        }
+        clearStatus();
     }
 
     // ------------------------------------------------------------
