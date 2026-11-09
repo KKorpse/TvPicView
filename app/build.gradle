@@ -25,6 +25,13 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // 每次构建自动输出带版本号的文件名，例如 TvPicView-v1.2-debug.apk
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            output.outputFileName = "TvPicView-v${variant.versionName}-${variant.buildType.name}.apk"
+        }
+    }
 }
 
 dependencies {
